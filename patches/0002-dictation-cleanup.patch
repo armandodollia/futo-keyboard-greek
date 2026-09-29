@@ -1,0 +1,509 @@
+diff --git a/java/res/values/strings-cleanup.xml b/java/res/values/strings-cleanup.xml
+new file mode 100644
+index 000000000..54b2416fb
+--- /dev/null
++++ b/java/res/values/strings-cleanup.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Strings for the dictation cleanup feature (personal FUTO Keyboard build) -->
++<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
++    <string name="dictation_cleanup_title" translatable="false">Dictation cleanup (LLM)</string>
++    <string name="dictation_cleanup_subtitle" translatable="false">After voice input, clean up or rewrite the transcript with a local model and/or your own server</string>
++    <string name="dictation_cleanup_in_progress" translatable="false">Cleaning up… (tap to keep the original)</string>
++</resources>
+diff --git a/java/src/org/futo/inputmethod/latin/uix/actions/VoiceInputAction.kt b/java/src/org/futo/inputmethod/latin/uix/actions/VoiceInputAction.kt
+index 2ad589789..55ff61ba1 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/actions/VoiceInputAction.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/actions/VoiceInputAction.kt
+@@ -20,6 +20,7 @@ import androidx.compose.ui.semantics.traversalIndex
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
+ import kotlinx.coroutines.cancelAndJoin
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.runBlocking
+@@ -40,6 +41,7 @@ import org.futo.inputmethod.latin.uix.ResourceHelper
+ import org.futo.inputmethod.latin.uix.USE_PERSONAL_DICT
+ import org.futo.inputmethod.latin.uix.USE_VAD_AUTOSTOP
+ import org.futo.inputmethod.latin.uix.VERBOSE_PROGRESS
++import org.futo.inputmethod.latin.uix.cleanup.DictationCleanup
+ import org.futo.inputmethod.latin.uix.getSetting
+ import org.futo.inputmethod.latin.uix.setSetting
+ import org.futo.inputmethod.latin.uix.settings.SettingsActivity
+@@ -212,7 +214,7 @@ private class VoiceInputActionWindow(
+             .clickable(
+                 enabled = true,
+                 onClickLabel = null,
+-                onClick = { recognizerView.value?.finish() },
++                onClick = { if (cleaningUp.value) keepOriginal() else recognizerView.value?.finish() },
+                 role = null,
+                 indication = null,
+                 interactionSource = remember { MutableInteractionSource() })
+@@ -221,6 +223,8 @@ private class VoiceInputActionWindow(
+             }) {
+             Box(modifier = Modifier.align(Alignment.Center)) {
+                 when {
++                    cleaningUp.value -> Text(stringResource(R.string.dictation_cleanup_in_progress),
++                        modifier = Modifier.padding(8.dp), textAlign = TextAlign.Center)
+                     modelException.value != null -> ModelDownloader(modelException.value!!)
+                     recognizerView.value != null -> recognizerView.value!!.Content()
+                 }
+@@ -229,6 +233,7 @@ private class VoiceInputActionWindow(
+     }
+ 
+     override fun close(): CloseResult {
++        cleanupJob?.cancel()
+         inputTransaction.cancel()
+         runBlocking { initJob.cancelAndJoin() }
+         recognizerView.value?.cancel()
+@@ -262,14 +267,39 @@ private class VoiceInputActionWindow(
+         }
+     }
+ 
++    // Dictation cleanup (LLM): while it runs, the raw transcript is kept as the partial text, so closing the window
++    // or tapping ("keep original") commits the raw text; a failed cleanup also falls back to it.
++    private val cleaningUp = mutableStateOf(false)
++    private var cleanupJob: Job? = null
++    private var rawTranscript = ""
++
++    private fun commitAndClose(text: String) {
++        inputTransaction.commit(text)
++        manager.announce(text)
++        manager.closeActionWindow()
++    }
++
++    private fun keepOriginal() {
++        cleanupJob?.cancel()
++        commitAndClose(rawTranscript)
++    }
++
+     override fun finished(result: String) {
+         wasFinished = true
+ 
+         manager.getLifecycleScope().launch(Dispatchers.Main) {
+             val sanitized = ModelOutputSanitizer.sanitize(result, inputTransaction.textContext)
+-            inputTransaction.commit(sanitized)
+-            manager.announce(result)
+-            manager.closeActionWindow()
++            if (sanitized.isBlank() || !DictationCleanup.isEnabled(context)) {
++                commitAndClose(sanitized)
++                return@launch
++            }
++            rawTranscript = sanitized
++            inputTransaction.updatePartial(sanitized)
++            cleaningUp.value = true
++            cleanupJob = manager.getLifecycleScope().launch(Dispatchers.Main) {
++                val cleaned = DictationCleanup.clean(context, sanitized, locales.firstOrNull()?.language)
++                commitAndClose(cleaned.text)
++            }
+         }
+     }
+ 
+diff --git a/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanup.kt b/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanup.kt
+new file mode 100644
+index 000000000..7ffda41b1
+--- /dev/null
++++ b/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanup.kt
+@@ -0,0 +1,249 @@
++package org.futo.inputmethod.latin.uix.cleanup
++
++import android.content.Context
++import android.os.SystemClock
++import androidx.datastore.preferences.core.booleanPreferencesKey
++import androidx.datastore.preferences.core.intPreferencesKey
++import androidx.datastore.preferences.core.stringPreferencesKey
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.Deferred
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.async
++import kotlinx.coroutines.coroutineScope
++import kotlinx.coroutines.selects.select
++import kotlinx.coroutines.withContext
++import kotlinx.coroutines.withTimeout
++import kotlinx.serialization.json.Json
++import kotlinx.serialization.json.addJsonObject
++import kotlinx.serialization.json.buildJsonObject
++import kotlinx.serialization.json.jsonArray
++import kotlinx.serialization.json.jsonObject
++import kotlinx.serialization.json.jsonPrimitive
++import kotlinx.serialization.json.put
++import kotlinx.serialization.json.putJsonArray
++import org.futo.inputmethod.latin.uix.SettingsKey
++import org.futo.inputmethod.latin.uix.getSetting
++import java.net.HttpURLConnection
++import java.net.URL
++
++/*
++ * Dictation cleanup: after voice input, the transcript is cleaned (light) or rewritten (rambler) by an LLM.
++ * Backends: a remote OpenAI-compatible server (e.g. llama-server on a home PC over Tailscale; the API key is
++ * optional) and an on-device model (registered by the local runtime when one is installed). Strategies:
++ *   race    - start both at once; use the remote result if it succeeds in time, otherwise the local one
++ *   fastest - start both at once; use whichever succeeds first
++ *   remote  - remote only;  local - local only
++ * If everything fails, the raw transcript is kept. Nothing is sent anywhere unless a remote URL is configured.
++ */
++
++val DICTATION_CLEANUP_ENABLED = SettingsKey(booleanPreferencesKey("dictation_cleanup_enabled"), false)
++val DICTATION_CLEANUP_MODE = SettingsKey(stringPreferencesKey("dictation_cleanup_mode"), CleanupMode.LIGHT)
++val DICTATION_CLEANUP_STRATEGY = SettingsKey(stringPreferencesKey("dictation_cleanup_strategy"), CleanupStrategy.RACE)
++val DICTATION_CLEANUP_REMOTE_URL = SettingsKey(stringPreferencesKey("dictation_cleanup_remote_url"), "")
++val DICTATION_CLEANUP_REMOTE_KEY = SettingsKey(stringPreferencesKey("dictation_cleanup_remote_key"), "")
++val DICTATION_CLEANUP_REMOTE_MODEL = SettingsKey(stringPreferencesKey("dictation_cleanup_remote_model"), "")
++val DICTATION_CLEANUP_REMOTE_TIMEOUT_MS = SettingsKey(intPreferencesKey("dictation_cleanup_remote_timeout_ms"), 4000)
++
++object CleanupMode { const val LIGHT = "light"; const val RAMBLER = "rambler" }
++object CleanupStrategy { const val RACE = "race"; const val FASTEST = "fastest"; const val REMOTE = "remote"; const val LOCAL = "local" }
++
++interface CleanupBackend {
++    val name: String
++    suspend fun clean(text: String, mode: String, language: String?): String
++}
++
++/** The on-device runtime registers itself here once a local cleanup model is installed and loaded. */
++object LocalCleanupBackend {
++    @Volatile var backend: CleanupBackend? = null
++    const val TIMEOUT_MS = 10_000L
++}
++
++data class CleanupResult(val text: String, val source: String, val millis: Long, val errors: List<String> = emptyList())
++
++object CleanupPrompts {
++    private fun languageName(code: String?) = when (code) {
++        "el" -> "Greek"; "sq" -> "Albanian"; "en" -> "English"; null, "" -> "the speaker's language"
++        else -> java.util.Locale(code).getDisplayLanguage(java.util.Locale.ENGLISH)
++    }
++
++    fun system(mode: String, language: String?): String {
++        val lang = languageName(language)
++        val common = "The text is in $lang. Keep that language: never translate. Keep slang, insults, threats, " +
++            "obscenities and swear words exactly as spoken; never soften, censor, euphemize or moralize - the speaker " +
++            "chose those words on purpose. Do not add information, do not answer questions in the text, do not " +
++            "explain. Output only the resulting text, nothing else."
++        return if (mode == CleanupMode.RAMBLER) {
++            "You turn rambling voice dictation into a short, clear message the speaker could send as-is. Keep the " +
++                "meaning, tone, attitude and first-person voice; remove repetition, fillers, false starts and tangents, " +
++                "but never make it more polite. $common\n\nExample (style only - never copy its words):\nInput: um so " +
++                "like you asshole I swear uh if you touch my fucking car one more time I'll kill you okay\nOutput: You " +
++                "asshole, I swear if you touch my fucking car one more time I'll kill you."
++        } else {
++            "You clean up voice-dictation transcripts. Fix punctuation and capitalization, remove filler words and " +
++                "hesitations, and apply self-corrections (when the speaker corrects themselves, keep only the " +
++                "corrected version). Change nothing else: keep the speaker's own words and word order. $common"
++        }
++    }
++}
++
++class RemoteCleanupBackend(
++    private val url: String, private val apiKey: String, private val model: String, private val timeoutMs: Int
++) : CleanupBackend {
++    override val name = "remote"
++
++    private fun endpoint(): String {
++        val u = url.trim().trimEnd('/')
++        return when {
++            u.endsWith("/chat/completions") -> u
++            u.endsWith("/v1") -> "$u/chat/completions"
++            else -> "$u/v1/chat/completions"
++        }
++    }
++
++    override suspend fun clean(text: String, mode: String, language: String?): String = withContext(Dispatchers.IO) {
++        val body = buildJsonObject {
++            if (model.isNotBlank()) put("model", model)
++            put("temperature", 0.2)
++            put("max_tokens", (text.length * 2).coerceIn(64, 1024))
++            put("stream", false)
++            putJsonArray("messages") {
++                addJsonObject { put("role", "system"); put("content", CleanupPrompts.system(mode, language)) }
++                addJsonObject { put("role", "user"); put("content", text) }
++            }
++        }.toString()
++        val conn = URL(endpoint()).openConnection() as HttpURLConnection
++        try {
++            conn.requestMethod = "POST"
++            conn.connectTimeout = timeoutMs.coerceAtMost(5000)
++            conn.readTimeout = timeoutMs
++            conn.doOutput = true
++            conn.setRequestProperty("Content-Type", "application/json")
++            if (apiKey.isNotBlank()) conn.setRequestProperty("Authorization", "Bearer ${apiKey.trim()}")
++            conn.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
++            val code = conn.responseCode
++            val response = (if (code in 200..299) conn.inputStream else conn.errorStream)
++                ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
++            if (code !in 200..299) throw IllegalStateException("HTTP $code: ${response.take(200)}")
++            Json.parseToJsonElement(response).jsonObject["choices"]!!.jsonArray[0]
++                .jsonObject["message"]!!.jsonObject["content"]!!.jsonPrimitive.content
++        } finally {
++            conn.disconnect()
++        }
++    }
++}
++
++/**
++ * Swear-word stems (English, Greek, Albanian; lowercase, Greek without accents). Used only to verify that a cleanup
++ * did not censor the speaker: if the output lost most of them, the result is rejected and the next option is used.
++ */
++object Profanity {
++    private val stems = listOf(
++        // English
++        "fuck", "motherf", "shit", "bitch", "cunt", "dick", "cock", "pussy", "asshole", "bastard", "whore", "slut",
++        "dildo", "douche", "wank", "twat", "prick", "damn", "crap", "piss", "bollock",
++        // Greek (accents stripped; "γαμω/γαμη.." but not "γαμος" = wedding)
++        "μαλακ", "γαμω", "γαμη", "γαμιε", "γαμισ", "γαμιο", "γαμιω", "πουστ", "καριολ", "αρχιδ", "μουνι", "μουνο",
++        "σκατ", "πουταν", "κωλο", "κωλε", "πουτσ", "γκαβλ", "κερατα", "βλακα", "ηλιθι", "καθικ", "παλιοπ", "τσουλ",
++        // Albanian ("qifsh/qirje" but not "qira" = rent)
++        "qifsh", "qift", "qij", "qirje", "qirja", "pidh", "kurv", "bythqir", "pordh", "budall", "kopil", "lavir"
++    )
++    private val exact = setOf("kar", "kari", "karin", "karit", "mut", "muti", "mutin", "rrot", "bytha", "byth", "κωλος", "κωλο")
++    private val word = Regex("[\\p{L}']+")
++
++    private fun norm(w: String) = java.text.Normalizer.normalize(w.lowercase(), java.text.Normalizer.Form.NFD)
++        .filter { Character.getType(it) != Character.NON_SPACING_MARK.toInt() }
++
++    private val corrections = listOf(
++        "i meant", "i mean", "no wait", "sorry", "correction", "scratch that", "not that",
++        "εννοω", "ηθελα να πω", "οχι συγγνωμη", "συγγνωμη", "δηλαδη οχι", "λαθος",
++        "desha te them", "me fal", "jo jo", "gabim", "dmth jo"
++    )
++
++    fun hasSelfCorrection(text: String): Boolean { val t = norm(text); return corrections.any { t.contains(it) } }
++
++    fun count(text: String): Int = word.findAll(text).count { m ->
++        val w = norm(m.value).trimStart('\''); w in exact || stems.any { w.startsWith(it) }
++    }
++}
++
++object DictationCleanup {
++    fun isEnabled(context: Context) = context.getSetting(DICTATION_CLEANUP_ENABLED)
++
++    /** Reject outputs that are empty, wildly longer/shorter than the input, or look like chatter instead of text. */
++    private fun sane(raw: String, out: String, mode: String): String {
++        val o = out.trim().removeSurrounding("\"").trim()
++        require(o.isNotEmpty()) { "empty output" }
++        val ratio = o.length.toFloat() / raw.length.coerceAtLeast(1)
++        val max = if (mode == CleanupMode.RAMBLER) 1.5f else 1.6f
++        val min = if (mode == CleanupMode.RAMBLER) 0.15f else 0.4f
++        require(ratio in min..max) { "length ratio %.2f out of range".format(ratio) }
++        // Censorship guard. A self-correction ("... I meant ...") may legitimately swap one swear word for another.
++        val kept = Profanity.count(o); val had = Profanity.count(raw)
++        val allowed = if (Profanity.hasSelfCorrection(raw)) 1 else 0
++        require(had == 0 || (kept + allowed) * 2 >= had) { "sanitized: $had swear words in, $kept out" }
++        return o
++    }
++
++    suspend fun clean(context: Context, raw: String, language: String?): CleanupResult = coroutineScope {
++        val t0 = SystemClock.elapsedRealtime()
++        val mode = context.getSetting(DICTATION_CLEANUP_MODE)
++        val strategy = context.getSetting(DICTATION_CLEANUP_STRATEGY)
++        val url = context.getSetting(DICTATION_CLEANUP_REMOTE_URL)
++        val remoteTimeout = context.getSetting(DICTATION_CLEANUP_REMOTE_TIMEOUT_MS)
++        val errors = mutableListOf<String>()
++
++        fun attempt(backend: CleanupBackend, timeout: Long): Deferred<Result<String>> = async {
++            try {
++                Result.success(withTimeout(timeout) { sane(raw, backend.clean(raw, mode, language), mode) })
++            } catch (e: CancellationException) {
++                if (e is kotlinx.coroutines.TimeoutCancellationException) Result.failure(e) else throw e
++            } catch (e: Throwable) {
++                Result.failure(e)
++            }
++        }
++
++        val remote = if (url.isNotBlank() && strategy != CleanupStrategy.LOCAL) {
++            val backend = RemoteCleanupBackend(url, context.getSetting(DICTATION_CLEANUP_REMOTE_KEY),
++                context.getSetting(DICTATION_CLEANUP_REMOTE_MODEL), remoteTimeout)
++            attempt(backend, remoteTimeout.toLong() + 500)
++        } else null
++        val local = LocalCleanupBackend.backend?.takeIf { strategy != CleanupStrategy.REMOTE }
++            ?.let { attempt(it, LocalCleanupBackend.TIMEOUT_MS) }
++
++        fun done(text: String, source: String) = CleanupResult(text, source, SystemClock.elapsedRealtime() - t0, errors)
++        fun note(name: String, r: Result<String>?) {
++            if (r == null) errors.add("$name: not configured") else r.exceptionOrNull()?.let { errors.add("$name: ${it.message}") }
++        }
++
++        when (strategy) {
++            CleanupStrategy.FASTEST -> {
++                val pending = listOfNotNull(remote?.let { "remote" to it }, local?.let { "local" to it }).toMutableList()
++                while (pending.isNotEmpty()) {
++                    val (name, r) = select {
++                        pending.forEach { (n, d) -> d.onAwait { n to it } }
++                    }
++                    pending.removeAll { it.first == name }
++                    if (r.isSuccess) {
++                        pending.forEach { it.second.cancel() }
++                        return@coroutineScope done(r.getOrThrow(), name)
++                    }
++                    note(name, r)
++                }
++                if (remote == null) note("remote", null)
++                if (local == null) note("local", null)
++            }
++            else -> {  // RACE (remote preferred), REMOTE, LOCAL
++                val r = remote?.await()
++                if (r != null && r.isSuccess) {
++                    local?.cancel()
++                    return@coroutineScope done(r.getOrThrow(), "remote")
++                }
++                note("remote", r)
++                val l = local?.await()
++                if (l != null && l.isSuccess) return@coroutineScope done(l.getOrThrow(), "local")
++                note("local", l)
++            }
++        }
++        done(raw, "original")
++    }
++}
+diff --git a/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt b/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt
+new file mode 100644
+index 000000000..932b5d495
+--- /dev/null
++++ b/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt
+@@ -0,0 +1,92 @@
++package org.futo.inputmethod.latin.uix.cleanup
++
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.material3.Button
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberCoroutineScope
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.unit.dp
++import androidx.navigation.NavHostController
++import androidx.navigation.compose.rememberNavController
++import kotlinx.coroutines.launch
++import org.futo.inputmethod.latin.R
++import org.futo.inputmethod.latin.uix.settings.BottomSpacer
++import org.futo.inputmethod.latin.uix.settings.ScreenTitle
++import org.futo.inputmethod.latin.uix.settings.ScrollableList
++import org.futo.inputmethod.latin.uix.settings.SettingRadio
++import org.futo.inputmethod.latin.uix.settings.SettingTextField
++import org.futo.inputmethod.latin.uix.settings.SettingToggleDataStore
++import org.futo.inputmethod.latin.uix.settings.useDataStore
++
++private const val TEST_SAMPLE =
++    "εεε λοιπόν θα έρθω αύριο στις πέντε όχι συγγνώμη στις έξι και θα φέρω και τα γλυκά εντάξει"
++
++@Composable
++fun DictationCleanupScreen(navController: NavHostController = rememberNavController()) {
++    val context = LocalContext.current
++    val scope = rememberCoroutineScope()
++    val testOutput = remember { mutableStateOf("") }
++
++    ScrollableList {
++        ScreenTitle(stringResource(R.string.dictation_cleanup_title), showBack = true, navController)
++        SettingToggleDataStore(
++            title = stringResource(R.string.dictation_cleanup_title),
++            subtitle = stringResource(R.string.dictation_cleanup_subtitle),
++            setting = DICTATION_CLEANUP_ENABLED
++        )
++        SettingRadio(
++            title = "Mode",
++            options = listOf(CleanupMode.LIGHT, CleanupMode.RAMBLER),
++            optionNames = listOf("Light: punctuation, fillers, self-corrections", "Rambler: rewrite into a short, clear message"),
++            setting = useDataStore(DICTATION_CLEANUP_MODE)
++        )
++        SettingRadio(
++            title = "Where to run",
++            options = listOf(CleanupStrategy.RACE, CleanupStrategy.FASTEST, CleanupStrategy.REMOTE, CleanupStrategy.LOCAL),
++            optionNames = listOf(
++                "Remote + local in parallel, prefer remote",
++                "Remote + local in parallel, fastest wins",
++                "Remote only",
++                "Local only"
++            ),
++            setting = useDataStore(DICTATION_CLEANUP_STRATEGY)
++        )
++        SettingTextField("Remote server URL", "http://100.x.y.z:8080  (OpenAI-compatible)", DICTATION_CLEANUP_REMOTE_URL)
++        SettingTextField("API key (optional)", "leave blank for a trusted tailnet", DICTATION_CLEANUP_REMOTE_KEY)
++        SettingTextField("Model name (optional)", "e.g. home", DICTATION_CLEANUP_REMOTE_MODEL)
++        SettingRadio(
++            title = "Remote timeout",
++            options = listOf(2000, 4000, 8000),
++            optionNames = listOf("2 seconds", "4 seconds", "8 seconds"),
++            setting = useDataStore(DICTATION_CLEANUP_REMOTE_TIMEOUT_MS)
++        )
++
++        ScreenTitle("Local model")
++        Text(
++            if (LocalCleanupBackend.backend != null) "On-device model loaded (${LocalCleanupBackend.backend!!.name})"
++            else "No on-device model installed yet: local and parallel modes use the remote server only, and the raw transcript is kept if it fails.",
++            modifier = Modifier.padding(16.dp, 4.dp), style = MaterialTheme.typography.bodyMedium
++        )
++
++        ScreenTitle("Test")
++        Button(onClick = {
++            testOutput.value = "running…"
++            scope.launch {
++                val r = DictationCleanup.clean(context, TEST_SAMPLE, "el")
++                testOutput.value = "source: ${r.source}, ${r.millis} ms\n${r.text}" +
++                    (if (r.errors.isNotEmpty()) "\n\n" + r.errors.joinToString("\n") else "")
++            }
++        }, modifier = Modifier.fillMaxWidth().padding(16.dp, 4.dp)) { Text("Test with a Greek sample") }
++        if (testOutput.value.isNotEmpty()) {
++            Text(testOutput.value, modifier = Modifier.padding(16.dp, 8.dp), style = MaterialTheme.typography.bodyMedium)
++        }
++        BottomSpacer()
++    }
++}
+diff --git a/java/src/org/futo/inputmethod/latin/uix/settings/SettingsNavigator.kt b/java/src/org/futo/inputmethod/latin/uix/settings/SettingsNavigator.kt
+index 135202712..d97c34015 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/settings/SettingsNavigator.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/settings/SettingsNavigator.kt
+@@ -165,6 +165,7 @@ fun SettingsNavigator(
+                 PersonalDictionaryLanguageList()
+             }
+             composable("advancedparams") { AdvancedParametersScreen(navController) }
++            composable("dictationCleanup") { org.futo.inputmethod.latin.uix.cleanup.DictationCleanupScreen(navController) }
+             composable("actionEdit") { ActionEditorScreen(navController) }
+             SettingsMenus.forEach { menu ->
+                 if(menu.registerNavPath) composable(menu.navPath) { UserSettingsMenuScreen(menu) }
+diff --git a/java/src/org/futo/inputmethod/latin/uix/settings/pages/VoiceInput.kt b/java/src/org/futo/inputmethod/latin/uix/settings/pages/VoiceInput.kt
+index 2fff8bdb4..43a335ec8 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/settings/pages/VoiceInput.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/settings/pages/VoiceInput.kt
+@@ -89,6 +89,13 @@ val VoiceInputMenu = UserSettingsMenu(
+             setting = ANIMATE_BUBBLE
+         ).copy(visibilityCheck = visibilityCheckNotSystemVoiceInput),
+ 
++        userSettingNavigationItem(
++            title = R.string.dictation_cleanup_title,
++            subtitle = R.string.dictation_cleanup_subtitle,
++            style = NavigationItemStyle.Misc,
++            navigateTo = "dictationCleanup"
++        ).copy(visibilityCheck = visibilityCheckNotSystemVoiceInput),
++
+         userSettingNavigationItem(
+             title = R.string.voice_input_settings_change_models,
+             subtitle = R.string.voice_input_settings_change_models_subtitle,
+diff --git a/java/stable/AndroidManifest.xml b/java/stable/AndroidManifest.xml
+index c29d02716..876f6806e 100644
+--- a/java/stable/AndroidManifest.xml
++++ b/java/stable/AndroidManifest.xml
+@@ -1,7 +1,11 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ 
+-    <application>
++    <!-- Personal build: network is used only for the user-configured dictation cleanup server (off by default).
++         Cleartext is allowed for plain-http servers on a private tailnet/LAN. -->
++    <uses-permission android:name="android.permission.INTERNET" />
++
++    <application android:usesCleartextTraffic="true">
+         <service
+             android:name="org.futo.inputmethod.updates.UpdateCheckingService"
+             android:label="@string/autoupdater_service_title"
+@@ -11,4 +15,4 @@
+         <receiver android:name="org.futo.inputmethod.updates.InstallReceiver" />
+ 
+     </application>
+-</manifest>
+\ No newline at end of file
++</manifest>

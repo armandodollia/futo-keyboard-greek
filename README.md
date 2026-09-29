@@ -21,6 +21,20 @@ words typed in Greek, Albanian (ë, ç) or other alphabets. With the patch:
 
 It is based on [stamchry/android-keyboard@5795368](https://github.com/stamchry/android-keyboard/commit/5795368), cut down
 to what the feature needs.
+`patches/0002-dictation-cleanup.patch` adds **dictation cleanup**. After voice input, the transcript can be cleaned (light:
+punctuation, fillers, self-corrections) or rewritten (rambler: a short, clear message) by an LLM. It is set up under
+Settings → Voice input → Dictation cleanup:
+
+- **Remote server:** any OpenAI-compatible server, e.g. llama-server on your own PC over Tailscale. The API key is
+  optional, so it can be left blank on a trusted tailnet.
+- **Local model:** an on-device model, coming in a later patch. Remote and local run **in parallel**, and the strategy
+  is configurable: prefer remote, fastest wins, remote only, or local only.
+- **Swearing and slang are never softened.** A result that censors the speaker is rejected, and the next option or the
+  raw transcript is used instead.
+- **Keep original:** tap during "Cleaning up…" to keep the raw transcript.
+
+The feature is off by default. The build declares the INTERNET permission, which it uses only to contact the server
+you configure.
 
 The build also:
 
