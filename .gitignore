@@ -1,0 +1,5 @@
+*.jks
+*.apk
+keystore.properties
+src/
+

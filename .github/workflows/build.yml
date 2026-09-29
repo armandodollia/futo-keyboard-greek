@@ -1,0 +1,128 @@
+# Builds FUTO Keyboard with the patches in patches/ applied, as a separate app ("FUTO Keyboard (Greek patch)",
+# org.futo.inputmethod.latin.greek) signed with our own key, and publishes the APK as a GitHub Release for Obtainium.
+#
+# Runs daily and builds each new upstream stable release once. Also rebuilds when the patches or this
+# workflow change (the release tag carries a patch revision number), or by hand from the Actions tab.
+# If a patch no longer applies or the build fails, the run fails (GitHub emails you) and nothing is published.
+name: Build patched FUTO Keyboard
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: "Upstream tag to build (blank = latest stable release)"
+        required: false
+      force:
+        description: "Rebuild even if this release already exists"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: ["patches/**", ".github/workflows/**"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    env:
+      GH_TOKEN: ${{ github.token }}
+      UPSTREAM: futo-org/android-keyboard
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Pick upstream release
+        id: up
+        run: |
+          TAG="${{ inputs.upstream_tag }}"
+          # "latest" release on GitHub = newest non-prerelease (skips -rc builds)
+          [ -z "$TAG" ] && TAG=$(gh release view --repo "$UPSTREAM" --json tagName -q .tagName)
+          PATCHREV=$(git rev-list --count HEAD -- patches .github/workflows)
+          OURTAG="${TAG}-greek.${PATCHREV}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "patchrev=$PATCHREV" >> "$GITHUB_OUTPUT"
+          echo "ourtag=$OURTAG" >> "$GITHUB_OUTPUT"
+          if gh release view "$OURTAG" >/dev/null 2>&1 && [ "${{ inputs.force }}" != "true" ]; then
+            echo "$OURTAG already published; nothing to do"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Building $OURTAG"
+          fi
+
+      - name: Free disk space
+        if: steps.up.outputs.skip != 'true'
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost "$AGENT_TOOLSDIRECTORY" || true
+
+      - name: Fetch FUTO Keyboard source
+        if: steps.up.outputs.skip != 'true'
+        run: |
+          git lfs install
+          git clone --filter=blob:none --branch "${{ steps.up.outputs.tag }}" "https://github.com/$UPSTREAM.git" src
+          git -C src submodule update --init --recursive --depth 1
+
+      - name: Apply patches
+        if: steps.up.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          for p in ../patches/*.patch; do
+            echo "== $p"
+            git apply --3way --whitespace=nowarn "$p"
+          done
+          # separate app next to the official one, clearly marked as modified (FUTO Source First License 1.1)
+          perl -0pi -e 's/(productFlavors \{.*?\n(\s*)stable \{\n)/$1$2    applicationIdSuffix ".greek"\n/s' build.gradle
+          perl -0pi -e 's/(\n\s*stable \{.*?buildConfigField "boolean", "UPDATE_CHECKING", )"true"/$1"false"/s' build.gradle
+          grep -rl --include='*.xml' 'name="english_ime_name"' java/res translations 2>/dev/null | \
+            xargs sed -i -E 's#(name="english_ime_name"[^>]*>)[^<]*<#\1FUTO Keyboard (Greek patch)<#'
+          git diff --stat
+          grep -n 'applicationIdSuffix ".greek"' build.gradle
+
+      - name: Set up Java and Android NDK
+        if: steps.up.outputs.skip != 'true'
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          NDK=$(grep -oP "ndkVersion '\K[^']+" src/build.gradle)
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK" "cmake;3.22.1" > /dev/null
+
+      - name: Signing key
+        if: steps.up.outputs.skip != 'true'
+        working-directory: src
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 --decode > key.jks
+          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=key.jks\n' \
+            "$KEYSTORE_PASSWORD" "$KEYSTORE_PASSWORD" "$KEY_ALIAS" > keystore.properties
+
+      - name: Build APK
+        if: steps.up.outputs.skip != 'true'
+        working-directory: src
+        run: |
+          # increases with every upstream release and every patch revision
+          export VERSION_CODE=$(( $(git rev-list --first-parent --count HEAD) * 100 + ${{ steps.up.outputs.patchrev }} % 100 ))
+          export VERSION_NAME="${{ steps.up.outputs.ourtag }}"
+          echo "versionCode $VERSION_CODE, versionName $VERSION_NAME"
+          ./gradlew assembleStableRelease -s --no-daemon
+          cp build/outputs/apk/stable/release/latinime-stable-release.apk "../futo-keyboard-${{ steps.up.outputs.ourtag }}.apk"
+          rm -f key.jks keystore.properties
+
+      - name: Publish release
+        if: steps.up.outputs.skip != 'true'
+        run: |
+          APK="futo-keyboard-${{ steps.up.outputs.ourtag }}.apk"
+          sha256sum "$APK" > "$APK.sha256"
+          gh release delete "${{ steps.up.outputs.ourtag }}" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "${{ steps.up.outputs.ourtag }}" "$APK" "$APK.sha256" --latest \
+            --title "FUTO Keyboard ${{ steps.up.outputs.tag }} + Greek patch (rev ${{ steps.up.outputs.patchrev }})" \
+            --notes "Modified build of FUTO Keyboard ${{ steps.up.outputs.tag }} (https://github.com/${UPSTREAM}/releases/tag/${{ steps.up.outputs.tag }}), with the patches in \`patches/\` at $(git rev-parse --short HEAD). This is a modified version of FUTO Keyboard, licensed under the FUTO Source First License 1.1 (see LICENSE-FUTO.md); it is not an official FUTO release. Installs as a separate app: org.futo.inputmethod.latin.greek."

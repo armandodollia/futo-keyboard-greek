@@ -1,0 +1,244 @@
+diff --git a/native/jni/org_futo_inputmethod_latin_xlm_LanguageModel.cpp b/native/jni/org_futo_inputmethod_latin_xlm_LanguageModel.cpp
+index cc622100e..6aaaf0d8c 100644
+--- a/native/jni/org_futo_inputmethod_latin_xlm_LanguageModel.cpp
++++ b/native/jni/org_futo_inputmethod_latin_xlm_LanguageModel.cpp
+@@ -10,6 +10,8 @@
+ #include "ggml/LanguageModel.h"
+ #include "defines.h"
+ #include "suggest/core/layout/proximity_info.h"
++#include "ggml/unicode.h"
++#include "utils/char_utils.h"
+ #include "jni_utils.h"
+ 
+ #define EPS 0.0001
+@@ -128,18 +130,43 @@ enum WordCapitalizeMode {
+     AllCapitals      // partialWord = "TE" or partialWord = "TEST"
+ };
+ 
+-bool isLowercase(unsigned char c, bool strict) {
++// Non-throwing UTF-8 decoder (invalid bytes are skipped). From stamchry/android-keyboard 5795368.
++static std::vector<uint32_t> safe_codepoints_from_utf8(const std::string &utf8) {
++    std::vector<uint32_t> result;
++    size_t i = 0, len = utf8.size();
++    while (i < len) {
++        uint8_t c = (uint8_t)utf8[i];
++        int n = c < 0x80 ? 0 : (c & 0xE0) == 0xC0 ? 1 : (c & 0xF0) == 0xE0 ? 2 : (c & 0xF8) == 0xF0 ? 3 : -1;
++        if (n < 0 || i + n >= len) { i += 1; continue; }  // invalid lead byte or truncated sequence
++        uint32_t cp = n == 0 ? c : n == 1 ? (c & 0x1F) : n == 2 ? (c & 0x0F) : (c & 0x07);
++        bool ok = true;
++        for (int k = 1; k <= n; k++) {
++            uint8_t cc = (uint8_t)utf8[i + k];
++            if ((cc & 0xC0) != 0x80) { ok = false; break; }
++            cp = (cp << 6) | (cc & 0x3F);
++        }
++        if (!ok) { i += 1; continue; }
++        result.push_back(cp);
++        i += n + 1;
++    }
++    return result;
++}
++
++// Unicode-aware lowercase check for one codepoint (the stock version only understood ASCII)
++bool isCodepointLowercase(int32_t cp, bool strict) {
++    int32_t lower = latinime::CharUtils::toLowerCase(cp);
+     if(strict) {
+-        return islower(c);
++        return lower == cp && codepoint_type((uint32_t)cp) == CODEPOINT_TYPE_LETTER;
+     } else {
+-        return isupper(c) == 0;
++        return lower == cp;
+     }
+ }
+ 
+ bool isFirstCharLowercase(const char* str, bool strict) {
+     if (str == nullptr || str[0] == '\0')
+         return false;
+-    return isLowercase(static_cast<unsigned char>(str[0]), strict);
++    auto cps = safe_codepoints_from_utf8(str);
++    return !cps.empty() && isCodepointLowercase((int32_t)cps[0], strict);
+ }
+ 
+ 
+@@ -147,19 +174,19 @@ bool hasLowercase(const char* str, bool strict) {
+     if (str == nullptr)
+         return false;
+ 
+-    for (; *str != '\0'; ++str) {
+-        if (isLowercase(static_cast<unsigned char>(*str), strict))
++    for (uint32_t cp : safe_codepoints_from_utf8(str)) {
++        if (isCodepointLowercase((int32_t)cp, strict))
+             return true;
+     }
+     return false;
+ }
+ 
+ bool isExactMatch(const std::string &a, const std::string &b){
+-    auto preprocess = [](const std::string &str) -> std::string {
+-        std::string result;
+-        for(char c : str) {
+-            if(c != '\'' && c != '-' && c != ' ') {
+-                result += (char)tolower(c);
++    auto preprocess = [](const std::string &str) -> std::vector<int32_t> {
++        std::vector<int32_t> result;
++        for(uint32_t cp : safe_codepoints_from_utf8(str)) {
++            if(cp != '\'' && cp != '-' && cp != ' ') {
++                result.push_back(latinime::CharUtils::toLowerCase((int32_t)cp));
+             }
+         }
+         return result;
+@@ -192,6 +219,7 @@ struct LanguageModelState {
+         int STAR = 0;
+ 
+         int LETTERS_TO_IDS[26] = { 0 };
++        std::unordered_map<int32_t, int> CODEPOINT_TO_TOKEN_ID;  // keystroke letter -> token, for any script
+ 
+         std::vector<int> banned_start_of_word_tokens;
+         std::vector<int> banned_tokens_for_first_capital;
+@@ -200,6 +228,14 @@ struct LanguageModelState {
+         std::vector<int> general_banned_tokens;
+     } specialTokens;
+ 
++    // Token for a typed letter (exact, then lowercase); -1 if the model has none
++    int getTokenIdForCodepoint(int32_t cp) const {
++        auto it = specialTokens.CODEPOINT_TO_TOKEN_ID.find(cp);
++        if(it == specialTokens.CODEPOINT_TO_TOKEN_ID.end())
++            it = specialTokens.CODEPOINT_TO_TOKEN_ID.find(latinime::CharUtils::toLowerCase(cp));
++        return it == specialTokens.CODEPOINT_TO_TOKEN_ID.end() ? -1 : it->second;
++    }
++
+     bool Initialize(const std::string &paths){
+         model = std::unique_ptr<LanguageModel>(LlamaAdapter::createLanguageModel(paths));
+ 
+@@ -222,10 +258,24 @@ struct LanguageModelState {
+             ASSERT(specialTokens.XBU != 0);
+             ASSERT(specialTokens.XBC != 0);
+             ASSERT(specialTokens.XEC != 0);
+-            ASSERT(specialTokens.LETTERS_TO_IDS[0] != 0);
+ 
+-            for(int i = 1; i < 26; i++) {
+-                specialTokens.LETTERS_TO_IDS[i] = specialTokens.LETTERS_TO_IDS[0] + i;
++            // <CHAR_A>..<CHAR_Z> are optional: models for other scripts use single-letter pieces instead
++            if(specialTokens.LETTERS_TO_IDS[0] != 0) {
++                for(int i = 1; i < 26; i++) {
++                    specialTokens.LETTERS_TO_IDS[i] = specialTokens.LETTERS_TO_IDS[0] + i;
++                }
++                for(int i = 0; i < 26; i++) {
++                    specialTokens.CODEPOINT_TO_TOKEN_ID['a' + i] = specialTokens.LETTERS_TO_IDS[i];
++                    specialTokens.CODEPOINT_TO_TOKEN_ID['A' + i] = specialTokens.LETTERS_TO_IDS[i];
++                }
++            } else {
++                // Models without <CHAR_*> (Greek, Albanian, ...): each letter key uses the model's
++                // single-letter piece. FUTO's own models keep exactly their stock behaviour.
++                for(int i = 0; i < model->getVocabSize(); i++) {
++                    auto cps = safe_codepoints_from_utf8(model->getToken(i));
++                    if(cps.size() == 1 && codepoint_type(cps[0]) == CODEPOINT_TYPE_LETTER)
++                        specialTokens.CODEPOINT_TO_TOKEN_ID.emplace((int32_t)cps[0], i);
++                }
+             }
+ 
+             if(model->adapter->hasFeature(FEATURE_SWIPE_TYPING)) {
+@@ -424,8 +474,8 @@ struct LanguageModelState {
+             }
+ 
+             if(num_added == 0){
+-                AKLOGE("Somehow a token mix had 0 weight for everything");
+-                ASSERT(false);
++                // Possible when a key's letter has no token in the model: use a zero embedding, don't crash
++                AKLOGE("Token mix had 0 weight for everything");
+             }
+ 
+             embeds.insert(embeds.end(), mix_f.begin(), mix_f.end());
+@@ -1019,12 +1069,14 @@ namespace latinime {
+             partialWordString = jstring2string(env, partialWord);
+         }
+ 
+-        if(partialWordString.size() < inputSize) inputSize = partialWordString.size();
++        // One keystroke = one codepoint (a Greek letter is 2 bytes in UTF-8), so index by codepoint, not byte
++        std::vector<uint32_t> partialWordCodepoints = safe_codepoints_from_utf8(partialWordString);
++        if(partialWordCodepoints.size() < inputSize) inputSize = partialWordCodepoints.size();
+ 
+         WordCapitalizeMode capitals = WordCapitalizeMode::IgnoredCapitals;
+ 
+         if(!partialWordString.empty() && !isFirstCharLowercase(partialWordString.c_str(), false)) {
+-            if(partialWordString.size() > 1 && !hasLowercase(partialWordString.c_str(), false)) {
++            if(partialWordCodepoints.size() > 1 && !hasLowercase(partialWordString.c_str(), false)) {
+                 capitals = WordCapitalizeMode::AllCapitals;
+             } else {
+                 capitals = WordCapitalizeMode::FirstCapital;
+@@ -1052,8 +1104,9 @@ namespace latinime {
+         std::vector<TokenMix> mixes;
+         int numSkippedDueToNoCoordinate = 0;
+         for(size_t i=0; i<inputSize; i++) {
+-            char wc = partialWordString[i];
+-            if (!(wc >= 'a' && wc <= 'z') && !(wc >= 'A' && wc <= 'Z') && !(wc >= '0' && wc <= '9')) {
++            int32_t wc = (int32_t)partialWordCodepoints[i];
++            int wcType = codepoint_type((uint32_t)wc);
++            if (wcType != CODEPOINT_TYPE_LETTER && wcType != CODEPOINT_TYPE_DIGIT) {
+                 //AKLOGI("%d | Char %c skipped due to not within range", i, wc);
+                 continue;
+             }
+@@ -1064,7 +1117,7 @@ namespace latinime {
+             }
+ 
+             int tapY = yCoordinates[i];
+-            if(wc >= '0' && wc <= '9') {
++            if(wcType == CODEPOINT_TYPE_DIGIT) {
+                 // If this is a number key, move the tap a little down
+                 // to find the key below when typing with number row active
+                 tapY += pInfo->getMostCommonKeyWidth() * 2 / 3;
+@@ -1090,10 +1143,9 @@ namespace latinime {
+             for(int s=0; s<4; s++) {
+                 num_symbols = 0;
+                 for (int j = 0; j < NUM_TOKEN_MIX; j++) {
+-                    char c = (char) (pInfo->getKeyCodePoint(index_value[j].second));
++                    int32_t c = pInfo->getKeyCodePoint(index_value[j].second);
+ 
+-                    if (c >= 'a' && c <= 'z') {
+-                    } else if (c >= 'A' && c <= 'Z') {
++                    if (codepoint_type((uint32_t)c) == CODEPOINT_TYPE_LETTER) {
+                     } else if(index_value[j].first > 0.0f) {
+                         index_value[j].first = 0.0f;
+                         needs_resorting = true;
+@@ -1136,14 +1188,12 @@ namespace latinime {
+ 
+ 
+             for(int j=0; j<NUM_TOKEN_MIX; j++) {
+-                char c = (char) (pInfo->getKeyCodePoint(index_value[j].second));
++                int token = state->getTokenIdForCodepoint(pInfo->getKeyCodePoint(index_value[j].second));
+                 float w = index_value[j].first;
+ 
+                 results.mixes[j].weight = w;
+-                if(c >= 'a' && c <= 'z') {
+-                    results.mixes[j].token = (state->specialTokens.LETTERS_TO_IDS[c - 'a']);
+-                }else if(c >= 'A' && c <= 'Z') {
+-                    results.mixes[j].token = (state->specialTokens.LETTERS_TO_IDS[c - 'A']);
++                if(token >= 0) {
++                    results.mixes[j].token = token;
+                 } else {
+                     //AKLOGI("ignoring character in partial word [%c]", c);
+                     results.mixes[j].weight = 0.0f;
+@@ -1156,8 +1206,8 @@ namespace latinime {
+         if(mixes.empty() && numSkippedDueToNoCoordinate > 0) {
+             AKLOGI("BUG: Mixes is empty due to lacking input coordinates. Falling back to non-mixing");
+             for(size_t i=0; i<inputSize; i++) {
+-                char wc = partialWordString[i];
+-                if (!(wc >= 'a' && wc <= 'z') && !(wc >= 'A' && wc <= 'Z')) {
++                int token = state->getTokenIdForCodepoint((int32_t)partialWordCodepoints[i]);
++                if (codepoint_type(partialWordCodepoints[i]) != CODEPOINT_TYPE_LETTER || token < 0) {
+                     continue;
+                 }
+ 
+@@ -1168,12 +1218,7 @@ namespace latinime {
+ 
+                 for(int j=0; j<NUM_TOKEN_MIX; j++) {
+                     results.mixes[j].weight = 0.0f;
+-
+-                    if(wc >= 'a' && wc <= 'z') {
+-                        results.mixes[j].token = (state->specialTokens.LETTERS_TO_IDS[wc - 'a']);
+-                    }else if(wc >= 'A' && wc <= 'Z') {
+-                        results.mixes[j].token = (state->specialTokens.LETTERS_TO_IDS[wc - 'A']);
+-                    }
++                    results.mixes[j].token = token;
+                 }
+ 
+                 results.mixes[0].weight = 1.0f;
