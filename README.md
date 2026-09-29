@@ -45,9 +45,10 @@ published, so your phone stays on the last working build.
 
 ## Updating with Obtainium
 
-1. Obtainium → Add App → `https://github.com/armandodollia/futo-keyboard-greek`.
-2. The repo is private, so in Obtainium's settings add a GitHub personal access token with read access to this repo.
-3. Keep "Include prereleases" off.
+Tap on the phone: https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/armandodollia/futo-keyboard-greek
 
-**The signing key** (`futo-greek.jks`) must never change: updates only install over a build signed with the same
-key. Keep a backup of it and its password outside this PC.
+Or, in Obtainium: Add App → `https://github.com/armandodollia/futo-keyboard-greek` → Add. No token is needed.
+Keep "Include prereleases" off. Each release has one APK plus a `.sha256` checksum.
+
+The signing key never changes. Updates only install over a build signed with the same key, which is why builds
+from anywhere else, including FUTO's own APK, install as a separate app rather than as an update.
