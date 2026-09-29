@@ -114,7 +114,7 @@ jobs:
           export VERSION_NAME="${{ steps.up.outputs.ourtag }}"
           echo "versionCode $VERSION_CODE, versionName $VERSION_NAME"
           ./gradlew assembleStableRelease -s --no-daemon
-          cp build/outputs/apk/stable/release/latinime-stable-release.apk "../futo-keyboard-${{ steps.up.outputs.ourtag }}.apk"
+          cp build/outputs/apk/stable/release/*-stable-release.apk "../futo-keyboard-${{ steps.up.outputs.ourtag }}.apk"
           rm -f key.jks keystore.properties
 
       - name: Publish release
