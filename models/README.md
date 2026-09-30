@@ -25,7 +25,7 @@ keep `NOTICE`, `ATTRIBUTION.md` and the matching licence with it.
 | [mandododo/whisper-tiny-greek-futo](https://huggingface.co/mandododo/whisper-tiny-greek-futo) | `Greek-39-v4.bin` + Transformers weights |
 | [mandododo/whisper-small-albanian-futo](https://huggingface.co/mandododo/whisper-small-albanian-futo) | `Albanian-244-v2.bin` + Transformers weights |
 | [mandododo/greek-typing-lm-futo](https://huggingface.co/mandododo/greek-typing-lm-futo) | `el_typing_v1.1_Q8_0.gguf` + PyTorch checkpoint |
-| [mandododo/albanian-typing-lm-futo](https://huggingface.co/mandododo/albanian-typing-lm-futo) | `sq_typing_v1.1_Q8_0.gguf` + PyTorch checkpoint |
+| [mandododo/albanian-typing-lm-futo](https://huggingface.co/mandododo/albanian-typing-lm-futo) | `sq_typing_v2_Q8_0.gguf` (and v1.1) + PyTorch checkpoints |
 | [mandododo/greek-dictionary-futo](https://huggingface.co/datasets/mandododo/greek-dictionary-futo) (dataset) | `Greek-main_el.dict` + `.combined` source |
 | [mandododo/albanian-dictionary-futo](https://huggingface.co/datasets/mandododo/albanian-dictionary-futo) (dataset) | `Albanian-main_sq.dict` + `.combined` source |
 | [mandododo/polyglot-cleanup-qwen3-1.7b](https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b) | `Cleanup-v2-q4_0.gguf` + NOTICE and licences |
@@ -41,7 +41,8 @@ Base URL: `https://github.com/armandodollia/futo-keyboard-polyglot/releases/down
 | [`Greek-39-v4.bin`](https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-39-v4.bin) | Voice: Whisper tiny (39M), Greek, ACFT, whisper.cpp q8_0 | 42 MB | MIT |
 | [`Albanian-244-v2.bin`](https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Albanian-244-v2.bin) | Voice: Whisper small (244M), Albanian incl. Gheg, ACFT, whisper.cpp q8_0 | 252 MB | MIT (see [data caveat](#licences-and-data-caveats)) |
 | [`el_typing_v1.1_Q8_0.gguf`](https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/el_typing_v1.1_Q8_0.gguf) | Typing: Greek transformer LM (35.5M Llama, 16k SentencePiece), Q8_0 | 45 MB | MIT |
-| [`sq_typing_v1.1_Q8_0.gguf`](https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/sq_typing_v1.1_Q8_0.gguf) | Typing: Albanian transformer LM (35.5M Llama, 16k SentencePiece), Q8_0 | 45 MB | MIT |
+| [`sq_typing_v2_Q8_0.gguf`](https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/sq_typing_v2_Q8_0.gguf) | Typing: Albanian transformer LM v2 (Albanian-specific typos), Q8_0 | 45 MB | MIT |
+| [`sq_typing_v1.1_Q8_0.gguf`](https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/sq_typing_v1.1_Q8_0.gguf) | Typing: Albanian transformer LM v1.1, previous (35.5M Llama, 16k SentencePiece), Q8_0 | 45 MB | MIT |
 | [`Greek-main_el.dict`](https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-main_el.dict) | Dictionary: Greek, 908,211 words, 608 flagged offensive | 8.9 MB | GPL-3.0 |
 | [`Greek-main_el.combined`](https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-main_el.combined) | Source wordlist of `Greek-main_el.dict` (AOSP `.combined` text) | 31 MB | GPL-3.0 |
 | [`Albanian-main_sq.dict`](https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Albanian-main_sq.dict) | Dictionary: Albanian incl. Gheg, 222,977 words, 107 flagged offensive | 1.1 MB | MIT |
@@ -57,6 +58,7 @@ Sizes are in MiB. `SHA256SUMS` in this folder has the same checksums in `sha256s
 | `Greek-39-v4.bin` | 43,537,450 | `9861d703fec4dcea55703ddbba5a8523d327c26b665ae32b603c21eb6a152f86` |
 | `Albanian-244-v2.bin` | 264,464,624 | `2011e011dffb0efb58799bfaf30fbada789063560e4d661db9e9e8760da03564` |
 | `el_typing_v1.1_Q8_0.gguf` | 47,209,440 | `5b4ccc0fe21a5f920b8198d04222cb21b435b56b9547fd8a716aca0d8b5d9ce5` |
+| `sq_typing_v2_Q8_0.gguf` | 47,044,256 | `46a264d4cb418e8ffeff03d478326a231ce4d0199fc8c921f9ac769a6bc8a13b` |
 | `sq_typing_v1.1_Q8_0.gguf` | 47,044,256 | `1a9ad13033c1a4cb7e9ae71d65865267621bd3932c16a6028cb9088d49947abe` |
 | `Greek-main_el.dict` | 9,297,026 | `19f4f8ab74a3a19713d4d650b541cec11767ad4a4ae88baf75cb6514e3e9626e` |
 | `Greek-main_el.combined` | 31,992,712 | `360525fc32330d74690a373560af39831800759810d2b2551068bf967e0c718b` |
@@ -231,7 +233,8 @@ word in its top 3 for 58.2%. The data was not trained on, but its error types in
   written without the Q/K RoPE permutation llama.cpp needs, so in the keyboard they agreed with the trained model on
   only ~40% of top predictions. v1.1 is the same checkpoint re-exported with `training/typing-lm/export.py` and
   checked in llama.cpp: 98-100% agreement at Q8_0 (Q6_K was 94-97%, hence Q8_0). If you have an older file, replace it.
-- **An Albanian typing model v2** (more realistic c/q/ç, digraph and case-ending errors) may replace `sq_typing_v1.1`.
+- **Albanian typing v2** adds Albanian-specific typos (c/q/ç, digraphs, endings, final vowels): greta44 c/q/ç top-3
+  23.5% → 41.2%, digraphs 52.2% → 55.7%, dropped final vowel 53.6% → 67.9%; missing letters dropped 54.0% → 49.1%.
 
 ## Licences and data caveats
 
