@@ -1,0 +1,6 @@
+# training / evaluation (a CUDA build of torch for training)
+torch
+transformers>=4.51   # Qwen3
+peft
+jiwer
+# optional: babel (language names beyond the built-in table), mlx-lm (Mac teacher)

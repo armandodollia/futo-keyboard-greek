@@ -1,0 +1,16 @@
+{
+  "code": "sq",
+  "fillers": ["ee", "eee", "pra", "domethënë", "e di", "ani", "shiko", "si me thënë"],
+  "corrections": ["jo më fal", "jo prit", "dmth", "jo jo", "gabim"],
+  "trailing_corrections": ["jo më fal", "jo prit", "gabim", "dmth", "jo jo", "desha të them"],
+  "light_fillers": ["ee", "pra", "domethënë"],
+  "numbers": ["dy", "tre", "katër", "pesë", "gjashtë", "shtatë", "tetë", "nëntë", "dhjetë"],
+  "swear_stems": ["qifsh", "qirje", "pidh", "kurv", "pordh", "budall", "kopil", "lavir"],
+  "swear_exact": [],
+  "detect": "[ëç]|\b(dhe|është|një|për|që|nuk)\b",
+  "hard_cases": [
+    ["rambler", "o qen bir qeni ee po të them se nëse vonohesh prapë ta qifsha nanën për zotin"],
+    ["light", "pra ee nesër do vij te ti në orën pesë jo më fal në gjashtë dhe do të sjell ato gjërat"]
+  ],
+  "notes": "'budall' is a mild insult but counts for retention: a cleanup must not drop it either. Detected by ë/ç or common function words."
+}

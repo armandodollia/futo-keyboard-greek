@@ -1,0 +1,11 @@
+{
+  "code": "el",
+  "name": "Greek",
+  "whisper_language": "greek",
+  "fleurs": "el_gr",
+  "teacher": "openai/whisper-large-v3",
+  "normalize": {"unicode": "NFC", "lowercase": true, "replace": {"ς": "σ"}},
+  "loose": {"strip_marks": true},
+  "clean": [],
+  "notes": "Final sigma is folded into σ for scoring only. 'loose' ignores tonos/dialytika, which subtitles often get wrong. large-v3 beat large-v3-turbo as a label checker for Greek (CV test 13.5% vs 23.4% WER)."
+}

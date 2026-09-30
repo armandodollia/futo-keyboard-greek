@@ -1,0 +1,68 @@
+# Albanian. Reproduces the Albanian typing LM: v1 = default errors, v2 = fine-tune of v1 with `--error-tags v2`.
+# Every key is documented in template.yaml.
+code: sq
+name: Albanian
+
+letters: 'A-Za-zËëÇç'
+min_script_share: 0.9
+sentence_end: '.!?…'
+sentence_start: 'A-ZËÇ'
+alphabet: 'abcçdeëfghijklmnopqrstuvwxyz'
+
+tokenizer:
+  vocab: 16000
+  sample_lines: 1500000
+  examples: [qifsha, budalla, përshëndetje, vlla, çka]
+
+layout:
+  futo: LatinScript/albanian.yaml   # QWERTZ with its own ë and ç keys
+  rows:
+    - [qwertzuiop, 0.0]
+    - [asdfghjklë, 0.0]
+    - [yxcvbnmç, 1.0]
+  own_keys: 'ëç'
+
+typing_errors:
+  - one_of:
+      - {replace_all: {ë: e, ç: c}, p: 0.35}    # typed without diacritics
+      - {drop_final: 'ë', min_len: 4, p: 0.13}  # dropped final ë (very common, also Gheg style): 20% of the other 65%
+  # v2: what Albanian typists actually get wrong (cf. greta44/albanian-error-augmentation error types)
+  - tag: v2
+    min_len: 3
+    one_of:
+      - {replace_one: {q: [ç, c, ç], ç: [q, c, q]}, p: 0.05, fallthrough: true}  # q/ç merged in many dialects; c for either
+      - substitute: [[sh, s], [gj, g], [dh, d], [nj, n], [xh, x], [zh, z], [th, t], [ll, l], [rr, r], [sh, h], [gj, j]]
+        p: 0.06                                                 # digraph reduction
+      - ending:                                                 # wrong inflection ending: the context picks the case
+          - [it, i, in, e, a, ë, t, ve, n]
+          - [ës, ën, ë, a, e, ave, at]
+          - [më, ma, mi, m, në, na, ni, n]
+          - [uar, ur, uem, ue]
+          - [je, jë, ja, jet, jen]
+          - [shëm, shme, shëme, shem]
+          - [ni, në, nin, të, ti, tin]
+        min_len: 5
+        p: 0.06
+      - {drop_final: 'eëai', min_len: 5, p: 0.03}              # dropped final vowel (punojm, bibliotek)
+  - substitute: [[rr, r], [r, rr], [ll, l], [l, ll], [dh, th], [th, dh], [ç, q], [q, ç], [xh, x], [gj, xh], [nj, n], [sh, s]]
+    pick: any
+    from: 1
+    occurrence: first
+    min_len: 4
+    p: 0.08
+
+sources:
+  fineweb2:  {from: fineweb2, dataset: als_Latn, max_mb: 3500, sp: 0.50, mix: 0.8475}
+  subtitles: {from: opensubtitles, min_chars: 4, sp: 0.20, mix: 0.057}      # ~4x repeats
+  wikipedia: {from: wikipedia, sp: 0.12, mix: 0.088}                         # ~3x
+  gheg:      {from: fineweb2, dataset: aln_Latn, sp: 0.06, mix: 0.003}       # Gheg web text, all of it
+  offensive: {from: huggingface, repo: strombergnlp/shaj, split: all, columns: [text], min_chars: 4, sp: 0.06, mix: 0.004}  # CC-BY-4.0
+  slang:     {from: local, path: extra/sq/*.txt, min_chars: 4, val: false, sp: 0.06, mix: 0.0005}
+
+eval:
+  text: [extra/sq/test/*.txt]   # a subfolder, so the training glob above never sees them
+  pairs:   # 2,495 linguist-made misspelling -> correct pairs
+    url: https://huggingface.co/datasets/greta44/albanian-error-augmentation/resolve/main/train.csv
+    wrong: incorrect
+    right: correct
+    type: error_type

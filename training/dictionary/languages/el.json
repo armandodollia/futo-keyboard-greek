@@ -1,0 +1,46 @@
+{
+  "locale": "el",
+  "description": "Ελληνικά (with slang)",
+  "version": 1,
+  "word_regex": "(?<![\\w])[\\u0370-\\u03ff\\u1f00-\\u1fff]+(?![\\w])",
+  "sources": [
+    {"path": "fineweb2.clean.txt", "boost": 1},
+    {"path": "wikipedia.clean.txt", "boost": 1},
+    {"path": "subtitles.clean.txt", "boost": 3},
+    {"path": "reddit.clean.txt", "boost": 25},
+    {"path": "offensive.clean.txt", "boost": 40},
+    {"path": "slang.txt", "boost": 300}
+  ],
+  "min_count": 30,
+  "min_count_capitalised": 600,
+  "capitalised_share": 0.9,
+  "single_letters": "αηιοωέήόύώ",
+  "all_caps": "skip",
+  "skip_regex": "σ$",
+  "min_f": 30,
+  "max_f": 250,
+  "core_words": [],
+  "offensive_stems": [
+    "μαλάκ", "μαλακί", "μαλακισ", "μαλακιστ", "μαλακοκάβλ", "μαλακοκαύλ",
+    "γαμώ", "γαμάω", "γαμάς", "γαμάει", "γαμάμε", "γαμάτε", "γαμάν", "γαμιέ", "γαμιόμ", "γαμιούν", "γαμήσ", "γάμησ",
+    "γαμημ", "γαμιόλ", "γαμιάς", "γαμιοβ", "γαμοσ", "γαμωσ", "γαμώτ",
+    "πούστ", "πουστ", "καριόλ", "καργιόλ", "αρχίδ", "αρχιδ", "μουνί", "μουνιά", "μουνό", "μουνάρ",
+    "σκατά", "σκατό", "σκατού", "σκατώ", "πουτάν", "πουτανι", "πούτσ", "πουτσ", "καύλ", "καυλ", "κώλο", "κώλου",
+    "κώλος", "κωλό", "κωλοτ", "κωλοπ", "τσούλ", "τσουλί", "παλιοπουτ", "παλιομαλάκ", "παλιογαμ", "παλιοπούστ",
+    "μπινέ", "κωλοτρυπ", "ψωλ", "ψωλή"
+  ],
+  "offensive_exact": [],
+  "not_offensive_stems": [
+    "γαμήλ", "γαμπρ", "γάμο", "γάμου", "γάμων", "γάμους", "γαμψ", "σκαντζ", "σκατζ", "τσουλήθρ",
+    "κωλύ", "κώλυμ", "καυλιόδοντ", "μαλακό", "μαλακά", "μαλακή", "μαλακός", "μαλακές", "μαλακοί",
+    "μαλακών", "μαλακτ", "μαλακύν", "μαλακώσ", "μαλάκυν", "μαλάκωμ", "μαλακοσ",
+    "αρχιδιάκ", "αρχιδιακ", "αρχιδιαιτ", "αρχιδικαστ", "αρχιδούκ", "αρχιδολοφ", "μαλάκι", "μαλάκωσ",
+    "μαλάκων", "μαλάκωνε", "μαλάκω", "μαλάκο", "κωλοτούμπ", "κωλοτουμπ", "τσούλησ", "τσούλος",
+    "αρχιδουκ", "μαλακίου", "τσούλαγ"
+  ],
+  "not_offensive_exact": ["τσούλι", "τσούλια", "καυλός", "καυλού", "καυλό", "καυλοί", "καυλών", "καυλούς"],
+  "capitalised_offensive_stems": [],
+  "extra_wordlist": {"url": "https://codeberg.org/Helium314/aosp-dictionaries/raw/branch/main/wordlists/main_el2.combined", "max_f": 100},
+  "look": ["μαλάκα", "μαλακά", "γαμώτο", "γάμος", "ρε", "κολλητέ", "σκατά", "σκαντζόχοιρος", "τσούλα", "τσουλήθρα", "καθίκι", "βλάκα", "Αθήνα"],
+  "notes": "Sources: web (FineWeb-2), Wikipedia, subtitles, Reddit, offensive tweets, one hand-written slang sentence per line. Swear matching keeps accents: μαλάκα vs μαλακά (softly), γαμώ vs γάμος (wedding), σκατά vs σκαντζόχοιρος (hedgehog), τσούλα vs τσουλήθρα (slide). Exceptions reviewed by hand: archdeacon, chief referee/judge, archduke(ss), molluscs, 'softened', somersault, 'rolled', rag (τσούλι), plant stem (καυλός). Capitalised forms are names (Αρχίδαμος, Πουτσίνι, Καυλωνία) and never flagged. main_el2 (Helium314/aosp-dictionaries) adds rare inflected forms at f <= 100."
+}

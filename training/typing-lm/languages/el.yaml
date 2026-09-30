@@ -1,0 +1,42 @@
+# Greek. Reproduces the Greek typing LM v1. Every key is documented in template.yaml.
+code: el
+name: Greek
+
+letters: 'Ͱ-Ͽἀ-῿'           # Greek and Coptic + Greek Extended blocks
+min_script_share: 0.6        # Greek text is full of Latin brand names, so be lenient
+sentence_end: '.!;…'         # ";" is the Greek question mark
+sentence_start: 'Ά-ΫA-Z'
+alphabet: 'αβγδεζηθικλμνξοπρσςτυφχψωάέήίόύώϊϋΐΰ'
+
+tokenizer:
+  vocab: 16000
+  sample_lines: 1500000
+  examples: [μαλάκα, γαμώτο, καλημέρα, ρε, κολλητέ]
+
+layout:
+  futo: Greek/greek.yaml     # accents are long-press alternates, so taps are always base letters
+  rows:
+    - [';ςερτυθιοπ', 0.0]
+    - [ασδφγηξκλ, 0.5]
+    - [ζχψωβνμ, 1.5]
+  own_keys: ''
+
+typing_errors:
+  - substitute: [[ει, ι], [οι, ι], [η, ι], [υ, ι], [ι, η], [ω, ο], [ο, ω], [αι, ε], [ε, αι], [ι, ει], [η, ει], [ι, οι]]
+    pick: any
+    from: 1
+    occurrence: first
+    min_len: 4
+    p: 0.08                  # phonetic misspelling (ι/η/υ/ει/οι, ο/ω, ε/αι)
+  - {final: {ς: σ}, p: 0.15} # σ typed for final ς
+
+sources:
+  fineweb2:  {from: fineweb2, dataset: ell_Grek, max_mb: 3000, keep: 0.25, sp: 0.45, mix: 0.52}
+  subtitles: {from: opensubtitles, keep: 0.30, min_chars: 4, sp: 0.35, mix: 0.38}  # 11 GB is far more dialogue than needed
+  wikipedia: {from: wikipedia, sp: 0.08, mix: 0.08}
+  reddit:    {from: huggingface, repo: IMISLab/GreekReddit, columns: [title, text], sp: 0.05, mix: 0.012}
+  offensive: {from: huggingface, repo: strombergnlp/offenseval_2020, config: gr, columns: [text], min_chars: 4, sp: 0.04, mix: 0.006}
+  slang:     {from: local, path: extra/el/*.txt, min_chars: 4, val: false, sp: 0.03, mix: 0.002}
+
+eval:
+  text: [extra/el/test/*.txt]   # a subfolder, so the training glob above never sees them

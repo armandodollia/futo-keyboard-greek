@@ -1,0 +1,72 @@
+// Dictionary config template. Copy to languages/<code>.json, fill in, delete what you do not need.
+// Full-line // comments are allowed; build_dict.py strips them.
+{
+  // Android locale of the dictionary (FUTO matches it against the keyboard language), e.g. "pt", "pt_BR".
+  "locale": "xx",
+  // Shown in FUTO's dictionary list. No ',' or '=' (the file header is key=value,key=value).
+  "description": "My language (with slang)",
+  // Dictionary version in the header. Our el/sq builds use 1 and load fine in FUTO; the AOSP docs recommend > 18 for
+  // other AOSP-based keyboards.
+  "version": 1,
+
+  // What counts as a word, as a Python regex. Use your alphabet explicitly: \w alone also matches digits and '_'.
+  // Allow an inner apostrophe if your language writes words with one (Albanian t'qifsha, s'ka).
+  "word_regex": "(?<![\\w'])[a-zA-Z]+(?:['’][a-zA-Z]+)?(?![\\w])",
+
+  // Corpora, relative to --data. Globs are fine. "boost" multiplies counts: informal text is scarce, so weigh it up
+  // until chat words rank where they would in real typing. Our values: web/Wikipedia 1, subtitles 3-8,
+  // Reddit/forums 25, offensive-comment datasets 40-60, speech transcripts 40, hand-written slang sentences 200-300.
+  // .jsonl files count one field ("field", default "text"); anything else is plain text, one line at a time.
+  "sources": [
+    {"path": "web.txt", "boost": 1},
+    {"path": "wikipedia.txt", "boost": 1},
+    {"path": "subtitles.txt", "boost": 5},
+    {"path": "chat/*.txt", "boost": 25},
+    {"path": "transcripts/*.jsonl", "boost": 40, "field": "text"},
+    {"path": "slang.txt", "boost": 200}
+  ],
+
+  // Drop words seen fewer times than this (boosted counts): typos and one-offs.
+  "min_count": 30,
+  // Capitalised words need more evidence: web text is full of rare names.
+  "min_count_capitalised": 600,
+  // Store a word capitalised only if this share of its uses is capitalised (names); else store it lowercase.
+  "capitalised_share": 0.9,
+  // Single letters that are real words (lowercase). Others are dropped.
+  "single_letters": "",
+  // Words seen ONLY in ALL CAPS (headlines, acronyms): "titlecase" keeps them as Title, "skip" drops them.
+  "all_caps": "titlecase",
+  // Optional: lowercase forms that are never words, removed before frequencies are computed (Greek: "σ$", a typo).
+  "skip_regex": null,
+  // Optional: forms to leave out of the output (English possessives in a non-English corpus: "['’]s$").
+  "drop_regex": null,
+
+  // Frequencies: f = 255 + log(p)/log(1.15), then clipped to [min_f, max_f]. Never 0 (AOSP: 0 = never suggest).
+  "min_f": 30,
+  "max_f": 250,
+  // Informal core words (slang, dialect, swearing) always included, at f >= core_min_f even if the corpus lacks them.
+  "core_words": [],
+  "core_min_f": 150,
+
+  // possibly_offensive=true: FUTO's "Block offensive words" setting decides if these are suggested; they keep their
+  // normal frequency and stay valid words. Matching is on the lowercased (NFC) form WITH accents.
+  // Flag vulgar swearing and slurs only, not mild insults or everyday slang.
+  // THESE LISTS MUST BE WRITTEN AND REVIEWED BY A NATIVE SPEAKER: stems catch innocent words (English "cock" ->
+  // cockpit, cockroach, Hancock) and miss spelling variants. Read the flagged list the build prints.
+  "offensive_stems": [],
+  "offensive_exact": [],
+  // Innocent look-alikes that start with an offensive stem (prefixes, then exact words).
+  "not_offensive_stems": [],
+  "not_offensive_exact": [],
+  // Capitalised forms are treated as names and never flagged, except words starting with these stems.
+  "capitalised_offensive_stems": [],
+
+  // Optional: merge an existing AOSP wordlist's extra forms (words we lack) at f <= max_f, e.g. from
+  // https://codeberg.org/Helium314/aosp-dictionaries/src/branch/main/wordlists (check its licence).
+  "extra_wordlist": null,
+  // "extra_wordlist": {"url": "https://codeberg.org/Helium314/aosp-dictionaries/raw/branch/main/wordlists/main_xx.combined", "max_f": 100},
+
+  // Words whose frequency the build prints, to sanity-check the ranking.
+  "look": [],
+  "notes": "Where the corpora came from and why the offensive exceptions exist."
+}

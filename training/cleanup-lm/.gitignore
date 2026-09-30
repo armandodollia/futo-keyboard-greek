@@ -1,0 +1,8 @@
+work/
+out/
+*.jsonl
+*.gguf
+*.safetensors
+val_pairs*.json
+eval_results.json
+__pycache__/

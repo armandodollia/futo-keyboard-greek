@@ -1,5 +1,5 @@
-# Builds FUTO Keyboard with the patches in patches/ applied, as a separate app ("FUTO Keyboard (Greek patch)",
-# org.futo.inputmethod.latin.greek) signed with our own key, and publishes the APK as a GitHub Release for Obtainium.
+# Builds FUTO Keyboard with the patches in patches/ applied, as a separate app ("FUTO Keyboard Polyglot",
+# org.futo.inputmethod.latin.polyglot) signed with our own key, and publishes the APK as a GitHub Release for Obtainium.
 #
 # Runs daily and builds each new upstream stable release once. Also rebuilds when the patches or this
 # workflow change (the release tag carries a patch revision number), or by hand from the Actions tab.
@@ -48,7 +48,7 @@ jobs:
           # "latest" release on GitHub = newest non-prerelease (skips -rc builds)
           [ -z "$TAG" ] && TAG=$(gh release view --repo "$UPSTREAM" --json tagName -q .tagName)
           PATCHREV=$(git rev-list --count HEAD -- patches .github/workflows)
-          OURTAG="${TAG}-greek.${PATCHREV}"
+          OURTAG="${TAG}-polyglot.${PATCHREV}"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "patchrev=$PATCHREV" >> "$GITHUB_OUTPUT"
           echo "ourtag=$OURTAG" >> "$GITHUB_OUTPUT"
@@ -81,12 +81,12 @@ jobs:
           # on-device cleanup runtime: pinned modern llama.cpp for native/llmcleanup (see patches/0003)
           git clone --depth 1 --branch "$(cat ../patches/llama.cpp.version)" https://github.com/ggml-org/llama.cpp native/llmcleanup/llama.cpp
           # separate app next to the official one, clearly marked as modified (FUTO Source First License 1.1)
-          perl -0pi -e 's/(productFlavors \{.*?\n(\s*)stable \{\n)/$1$2    applicationIdSuffix ".greek"\n/s' build.gradle
+          perl -0pi -e 's/(productFlavors \{.*?\n(\s*)stable \{\n)/$1$2    applicationIdSuffix ".polyglot"\n/s' build.gradle
           perl -0pi -e 's/(\n\s*stable \{.*?buildConfigField "boolean", "UPDATE_CHECKING", )"true"/$1"false"/s' build.gradle
           grep -rl --include='*.xml' 'name="english_ime_name"' java/res translations 2>/dev/null | \
-            xargs sed -i -E 's#(name="english_ime_name"[^>]*>)[^<]*<#\1FUTO Keyboard (Greek patch)<#'
+            xargs sed -i -E 's#(name="english_ime_name"[^>]*>)[^<]*<#\1FUTO Keyboard Polyglot<#'
           git diff --stat
-          grep -n 'applicationIdSuffix ".greek"' build.gradle
+          grep -n 'applicationIdSuffix ".polyglot"' build.gradle
 
       - name: Set up Java and Android NDK
         if: steps.up.outputs.skip != 'true'
@@ -126,5 +126,5 @@ jobs:
           sha256sum "$APK" > "$APK.sha256"
           gh release delete "${{ steps.up.outputs.ourtag }}" --yes --cleanup-tag 2>/dev/null || true
           gh release create "${{ steps.up.outputs.ourtag }}" "$APK" "$APK.sha256" --latest \
-            --title "FUTO Keyboard ${{ steps.up.outputs.tag }} + Greek patch (rev ${{ steps.up.outputs.patchrev }})" \
-            --notes "Modified build of FUTO Keyboard ${{ steps.up.outputs.tag }} (https://github.com/${UPSTREAM}/releases/tag/${{ steps.up.outputs.tag }}), with the patches in \`patches/\` at $(git rev-parse --short HEAD). This is a modified version of FUTO Keyboard, licensed under the FUTO Source First License 1.1 (see LICENSE-FUTO.md); it is not an official FUTO release. Installs as a separate app: org.futo.inputmethod.latin.greek."
+            --title "FUTO Keyboard ${{ steps.up.outputs.tag }} Polyglot (rev ${{ steps.up.outputs.patchrev }})" \
+            --notes "Modified build of FUTO Keyboard ${{ steps.up.outputs.tag }} (https://github.com/${UPSTREAM}/releases/tag/${{ steps.up.outputs.tag }}), with the patches in \`patches/\` at $(git rev-parse --short HEAD). This is a modified version of FUTO Keyboard, licensed under the FUTO Source First License 1.1 (see LICENSE-FUTO.md); it is not an official FUTO release. Installs as a separate app: org.futo.inputmethod.latin.polyglot."

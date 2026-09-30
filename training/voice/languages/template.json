@@ -1,0 +1,11 @@
+{
+  "code": "xx",
+  "name": "Your language",
+  "whisper_language": null,
+  "fleurs": null,
+  "teacher": null,
+  "normalize": {"unicode": "NFC", "lowercase": true, "replace": {}, "strip_marks": false},
+  "loose": {"replace": {}, "strip_marks": false},
+  "clean": [],
+  "notes": "Copy to languages/<code>.json and fill in. Field reference: the 'Language config' section of README.md."
+}

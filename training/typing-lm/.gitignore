@@ -1,0 +1,4 @@
+# downloaded corpora, tokenized data, checkpoints and .gguf files
+work/
+*.gguf
+__pycache__/

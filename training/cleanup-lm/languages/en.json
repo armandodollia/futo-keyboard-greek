@@ -1,0 +1,18 @@
+{
+  "code": "en",
+  "fillers": ["um", "uh", "like", "you know", "so", "I mean", "kind of", "basically"],
+  "corrections": ["no wait", "sorry I mean", "no no", "I mean", "scratch that"],
+  "trailing_corrections": ["no sorry", "no wait", "I mean", "sorry I meant", "no no", "scratch that"],
+  "light_fillers": ["um", "uh", "like"],
+  "numbers": ["two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"],
+  "swear_stems": ["fuck", "motherf", "shit", "bitch", "cunt", "dick", "cock", "pussy", "asshole", "bastard", "whore",
+                  "dildo", "douche", "wank", "twat", "prick"],
+  "swear_exact": [],
+  "detect": "\b(the|and|you|is|to|it|that|i|a|of)\b",
+  "hard_cases": [
+    ["rambler", "You motherfucker I swear I will beat you with your mom's used dildo if you are late uuhhhh I meant used douche"],
+    ["light", "so um yeah basically this fucking printer is a piece of shit and it it jammed again like three times so I'm gonna throw it out the window no seriously"],
+    ["light", "Can you send me the report by Friday? Thanks."]
+  ],
+  "notes": "English swear stems are also used when filtering teacher rewrites for every other language (people swear in English too)."
+}

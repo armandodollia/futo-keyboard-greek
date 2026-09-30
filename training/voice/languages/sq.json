@@ -1,0 +1,11 @@
+{
+  "code": "sq",
+  "name": "Albanian",
+  "whisper_language": "albanian",
+  "fleurs": null,
+  "teacher": "Flutra/whisper-large-v3-turbo-sq-v2",
+  "normalize": {"unicode": "NFC", "lowercase": true, "replace": {}},
+  "loose": {"replace": {"ë": "e", "ç": "c"}},
+  "clean": [["[´`’]", "'"]],
+  "notes": "Subtitles and casual typing often drop ë/ç, so 'loose' forgives them. The suggested teacher is a community Albanian large-v3-turbo fine-tune (128 mel bins, one extra vocab token: train.py remaps both). FLEURS has no Albanian."
+}

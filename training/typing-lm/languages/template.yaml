@@ -1,0 +1,108 @@
+# Language config template. Copy to languages/<code>.yaml (code = the ISO 639-1 code FUTO uses for the language,
+# e.g. "pt", "tr", "uk") and fill in every TODO. el.yaml and sq.yaml are complete, working examples.
+code: xx                     # TODO: written into the GGUF as keyboardlm.languages; must match the keyboard language
+name: Example                # TODO: display name, used in the model name
+
+# ---------------------------------------------------------------- text
+# The alphabet as a regex character class (no brackets). Used to
+#  - drop lines where fewer than `min_script_share` of the letters are in it (other-language / other-script junk),
+#  - decide which words become autocorrect examples (every character of the word must be in it),
+#  - so include upper case and every accented letter, e.g. Portuguese 'A-Za-zÀ-ÖØ-öø-ÿ'.
+letters: 'A-Za-z'            # TODO
+min_script_share: 0.9        # lower it (Greek uses 0.6) when normal text mixes in many foreign words/brands
+sentence_end: '.!?…'         # sentence-final punctuation (long paragraphs are cut there into <= 300 chars)
+sentence_start: 'A-Z'        # TODO: capitals that can start a sentence (regex class)
+alphabet: 'abcdefghijklmnopqrstuvwxyz'   # TODO: lowercase letters, incl. accented ones; prepare checks each is a piece
+
+tokenizer:
+  vocab: 16000               # 16k is plenty for one language; the embedding table is most of a small model
+  sample_lines: 1500000      # lines for SentencePiece training (4M needed > 24 GB RAM)
+  examples: [hello, world]   # TODO: a few informal words; their pieces are printed to stats.json as a sanity check
+
+# ---------------------------------------------------------------- keyboard
+# Read the rows off FUTO's layout file for your language:
+#   https://github.com/futo-org/futo-keyboard-layouts  (e.g. LatinScript/albanian.yaml, Greek/greek.yaml)
+# or run:  python futo_layout.py <that file or its raw GitHub URL>   (prints this block)
+#  - Each `letters:` row, left to right. Take the FIRST character of every key: that is what a plain tap types.
+#    Everything after it in a key's list is a long-press alternate.
+#  - Non-letter keys on a letter row (Greek ';') stay in the row for the geometry; they never get weight.
+#  - x offset, in key widths: FUTO centres every row, so offset = (keys in widest row - keys in this row) / 2.
+#    10/10/8 keys -> 0, 0, 1.0 (Albanian); 10/9/7 -> 0, 0.5, 1.5 (Greek, QWERTY).
+#    If the layout gives keys custom widths, adjust by hand.
+layout:
+  futo: LatinScript/xx.yaml  # for reference only
+  rows:
+    - [qwertyuiop, 0.0]      # TODO
+    - [asdfghjkl, 0.5]
+    - [zxcvbnm, 1.5]
+  # Letters with a diacritic that have their OWN key (Albanian ë ç, German ä ö ü on some layouts). They are typed as
+  # themselves. Every other diacritic is a long-press alternate: a normal tap types the base letter and the model
+  # learns to restore the accent.
+  own_keys: ''
+
+# ---------------------------------------------------------------- typing errors
+# Applied in order to the base letters of a word before the taps are simulated. Generic tap noise (fuzzy positions,
+# dropped / extra / swapped / doubled keys, partial words) is always added afterwards (tap_errors).
+#
+# A stage is one rule with a probability `p`, or `one_of:` a list of rules (one draw, probabilities add up: rule 2
+# fires for draws in [p1, p1 + p2) ...). A rule that doesn't fit the word (too short, nothing to replace) does
+# nothing, unless it has `fallthrough: true`: then its share goes to the next rule. Any stage or rule may have
+# `min_len` (letters), and a stage may have `tag: name`: it is then only used when training with
+# `--error-tags name` (e.g. for a fine-tune, as Albanian v2).
+#
+# Rules:
+#   replace_all: {ë: e, ç: c}          every occurrence (typing without diacritics)
+#   replace_one: {q: [ç, c]}           one random occurrence of a key char -> a random option
+#   substitute: [[ph, f], [ie, i]]     multi-letter misspellings. Options:
+#                                        pick: present (default: only pairs found in the word) | any (random pair,
+#                                              no-op if absent)
+#                                        from: 0 (skip the first N letters)
+#                                        occurrence: random (default) | first
+#   ending: [[en, em, e], [os, as]]    interchangeable inflection endings: swap the word's ending for another one
+#                                        of its group (the model learns to pick the right one from context)
+#   final: {ς: σ}                      last letter replaced
+#   drop_final: 'eaio'                 last letter dropped if it is one of these
+typing_errors:
+  - substitute: [[ss, s], [s, ss]]   # TODO: your language's common phonetic / spelling confusions
+    min_len: 4
+    p: 0.08
+
+tap_errors:                  # defaults, tuned on Greek/Albanian; usually fine as they are
+  drop: 0.08
+  extra: 0.06
+  swap: 0.05
+  double: 0.03
+  partial: 0.35              # share of words typed only partly (trains completion)
+
+# ---------------------------------------------------------------- data
+# One entry per source. download.py fetches each into <work>/raw/<name>.txt, prepare.py cleans and tokenizes it.
+#   from: fineweb2        dataset: <FineWeb-2 config, e.g. por_Latn>  (list: huggingface.co/datasets/HuggingFaceFW/fineweb-2
+#                         -> data/), max_mb: cap on text size. Licence ODC-By.
+#   from: wikipedia       wiki: <code> (default: `code`), dump: 20231101. Licence CC BY-SA.
+#   from: opensubtitles   opus: <OPUS code> (default: `code`). Dialogue, the best informal text there is, but the
+#                         subtitles are copyrighted: fine for a model for personal use, NOT for redistributing a model
+#                         you publish. Drop it (or weigh the risk) before sharing your .gguf.
+#   from: huggingface     repo, config (optional), split: train | test | all, columns: [text]  (any HF dataset, via its parquet files)
+#   from: url             url: plain text or .gz, one sentence per line
+#   from: local           path: glob, relative to this file (e.g. extra/xx/*.txt): your own slang / chat / insult lists
+# Per source:
+#   sp:        share of the SentencePiece training sample (weight informal text up so slang gets its own pieces)
+#   mix:       sampling weight during training. Keep small sources small: they repeat (mix x tokens / source tokens)
+#              times; ~15-75x is fine, hundreds of times is memorisation.
+#   keep:      random share of raw lines kept (subsample huge sources)
+#   min_chars: shortest line kept (default 15; use 4 for dialogue, comments, slang)
+#   val:       false = don't hold out validation lines (tiny sources)
+sources:
+  fineweb2:  {from: fineweb2, dataset: xxx_Latn, max_mb: 3000, sp: 0.55, mix: 0.80}   # TODO: dataset
+  subtitles: {from: opensubtitles, min_chars: 4, sp: 0.25, mix: 0.10}
+  wikipedia: {from: wikipedia, sp: 0.15, mix: 0.10}
+  slang:     {from: local, path: extra/xx/*.txt, min_chars: 4, val: false, sp: 0.05, mix: 0.001}
+
+# ---------------------------------------------------------------- evaluation
+eval:
+  text: [extra/xx/test/*.txt]   # held-out sentence files (globs, relative to this file); keep them out of the training globs
+  # pairs:                   # optional misspelling -> correct CSV (top-1/top-3 of the correction, per error type)
+  #   url: https://.../pairs.csv
+  #   wrong: incorrect
+  #   right: correct
+  #   type: error_type       # optional column

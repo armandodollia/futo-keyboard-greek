@@ -33,11 +33,11 @@ for p in "$REPO"/patches/*.patch; do echo "== $p"; git apply --3way --whitespace
 LLAMA_TAG=$(cat "$REPO/patches/llama.cpp.version")
 rm -rf native/llmcleanup/llama.cpp
 git clone --depth 1 --branch "$LLAMA_TAG" https://github.com/ggml-org/llama.cpp native/llmcleanup/llama.cpp
-perl -0pi -e 's/(productFlavors \{.*?\n(\s*)stable \{\n)/$1$2    applicationIdSuffix ".greek"\n/s' build.gradle
+perl -0pi -e 's/(productFlavors \{.*?\n(\s*)stable \{\n)/$1$2    applicationIdSuffix ".polyglot"\n/s' build.gradle
 perl -0pi -e 's/(\n\s*stable \{.*?buildConfigField "boolean", "UPDATE_CHECKING", )"true"/$1"false"/s' build.gradle
 grep -rl --include='*.xml' 'name="english_ime_name"' java/res translations 2>/dev/null | \
-  xargs sed -i '' -E 's#(name="english_ime_name"[^>]*>)[^<]*<#\1FUTO Keyboard (Greek patch)<#'
+  xargs sed -i '' -E 's#(name="english_ime_name"[^>]*>)[^<]*<#\1FUTO Keyboard Polyglot<#'
 
-VERSION_NAME="$TAG-greek.local" VERSION_CODE=$(( $(git rev-list --first-parent --count HEAD) * 100 + 99 )) \
+VERSION_NAME="$TAG-polyglot.local" VERSION_CODE=$(( $(git rev-list --first-parent --count HEAD) * 100 + 99 )) \
   ./gradlew assembleStableRelease -s --no-daemon
 ls -la build/outputs/apk/stable/release/

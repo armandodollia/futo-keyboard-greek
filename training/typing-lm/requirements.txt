@@ -1,0 +1,14 @@
+# Tested with: torch 2.14 (CUDA 12.6), transformers 5.17, sentencepiece 0.2.2, gguf 0.19, numpy 2.5, pyarrow 25.
+# Install torch first, with the CUDA build for your GPU: https://pytorch.org/get-started/locally/
+torch>=2.1
+transformers>=4.40
+sentencepiece>=0.2
+gguf>=0.10
+numpy
+pyyaml
+safetensors
+huggingface_hub
+pyarrow
+# Optional: quantizes without a llama.cpp build, and lets the quantize stage check the files in llama.cpp.
+# Prebuilt CPU wheels: pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+# llama-cpp-python

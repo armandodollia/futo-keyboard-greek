@@ -1,0 +1,47 @@
+// Cleanup-LM language template. Copy to languages/<code>.json and fill in with a native speaker.
+// Full-line // comments are allowed. The prompt's language NAME is not set here: it is always the English display
+// name the app derives from <code> (see README, "Language names"), e.g. "pt" -> "Portuguese".
+{
+  // Bare ISO 639 code, as the keyboard's voice-input language: "pt", not "pt_BR".
+  "code": "xx",
+
+  // Hesitations and fillers people actually say while dictating. They are sprinkled into clean messages to make
+  // "raw dictation" inputs; the model learns to remove them. 5-10 short, very common ones.
+  "fillers": ["um", "uh", "like", "you know"],
+
+  // Phrases a speaker uses to correct themselves mid-sentence ("... at five no wait at six ..."). Used inline.
+  "corrections": ["no wait", "sorry I mean", "no no"],
+  // Same idea for corrections at the END of a message ("... is sick, sorry I meant the girl"). Defaults to
+  // "corrections". Include longer forms ("what I wanted to say").
+  "trailing_corrections": ["no sorry", "no wait", "sorry I meant"],
+  // A few light fillers used inside correction examples. Defaults to the first three "fillers".
+  "light_fillers": ["um", "uh"],
+
+  // Number words two..ten: corrections of numbers ("five, no, six") are common and get their own examples.
+  "numbers": ["two", "three", "four", "five", "six", "seven", "eight", "nine", "ten"],
+
+  // Swear-word stems, lowercase; accents are stripped before matching. They are used to REJECT teacher rewrites that
+  // censor the speaker and to score swear retention. Prefer stems that do not start innocent words.
+  // A native speaker must write and check this list.
+  "swear_stems": [],
+  "swear_exact": [],
+
+  // Regex that matches text in this language and (ideally) not in the other trained languages: a script range
+  // ("[\\u0400-\\u04ff]" for Cyrillic), letters ("[ãõç]"), or common function words ("\\b(que|não|uma)\\b").
+  // Only used to score "language kept" in evaluation.
+  "detect": null,
+
+  // Hand-made hard cases printed by eval_cleanup.py and q4_check.py: [mode, raw dictation]. Include swearing, a
+  // number correction and a trailing self-correction.
+  "hard_cases": [
+    ["light", "um so I will come tomorrow at five no sorry at six and bring the cake okay"],
+    ["rambler", "you idiot uh if you are late again I swear I will kill you seriously"]
+  ],
+
+  // Optional: probabilities of the messy-dictation rules (defaults shown). Lower "filler" for languages whose
+  // speakers rarely hesitate aloud, raise "correction" if you want more self-corrections.
+  // "messy": {"filler": 0.10, "repeat": 0.04, "false_start": 0.02, "correction": 0.35, "lead_filler": 0.30,
+  //           "correction_filler": 0.08},
+
+  "notes": "Who reviewed the lists, and anything unusual about the language."
+}

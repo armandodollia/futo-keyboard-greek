@@ -1,0 +1,11 @@
+# Install PyTorch first, with CUDA if you have an NVIDIA GPU: https://pytorch.org/get-started/locally/
+# Tested with Python 3.12, torch 2.14, transformers 5.17, datasets 3.6.
+torch>=2.3
+transformers>=5.0      # from_pretrained(dtype=...) and the v5 encoder-layer call used by ACFT
+datasets>=2.18,<4      # only for --fleurs: FLEURS is a loading-script dataset, which datasets 4 dropped
+huggingface_hub
+jiwer>=3.0
+av>=12                 # PyAV: decodes Common Voice mp3 and any other audio format
+numpy
+soundfile              # datasets uses these two to decode FLEURS audio
+librosa
