@@ -4,7 +4,8 @@ Ready-made Greek and Albanian models for [FUTO Keyboard Polyglot](../README.md):
 prediction and autocorrect), dictionaries and dictation cleanup. They were built with the tooling in
 [`training/`](../training/README.md).
 
-The files are attached to the GitHub prerelease
+The files are on Hugging Face (see the table below: one repository per model, with its own card; the in-app downloads use
+these) and are also attached to the GitHub prerelease
 [`models-v1`](https://github.com/armandodollia/futo-keyboard-polyglot/releases/tag/models-v1). This folder has only the
 catalogue, the licences and the credits.
 
@@ -14,6 +15,20 @@ the FUTO app, but most of them also work with any whisper.cpp or llama.cpp progr
 teacher and dataset are in [`ATTRIBUTION.md`](ATTRIBUTION.md). Required notices, including the Gemma notice for the
 cleanup model, are in [`NOTICE`](NOTICE). Licence texts are in [`LICENSES/`](LICENSES). If you redistribute a file,
 keep `NOTICE`, `ATTRIBUTION.md` and the matching licence with it.
+
+## On Hugging Face
+
+| Repository | Contents |
+|---|---|
+| [mandododo/whisper-small-greek-futo](https://huggingface.co/mandododo/whisper-small-greek-futo) | `Greek-244-v4.bin` + Transformers weights (before/after ACFT) + training scripts and data lists |
+| [mandododo/whisper-base-greek-futo](https://huggingface.co/mandododo/whisper-base-greek-futo) | `Greek-74-v4.bin` + Transformers weights |
+| [mandododo/whisper-tiny-greek-futo](https://huggingface.co/mandododo/whisper-tiny-greek-futo) | `Greek-39-v4.bin` + Transformers weights |
+| [mandododo/whisper-small-albanian-futo](https://huggingface.co/mandododo/whisper-small-albanian-futo) | `Albanian-244-v2.bin` + Transformers weights |
+| [mandododo/greek-typing-lm-futo](https://huggingface.co/mandododo/greek-typing-lm-futo) | `el_typing_v1.1_Q8_0.gguf` + PyTorch checkpoint |
+| [mandododo/albanian-typing-lm-futo](https://huggingface.co/mandododo/albanian-typing-lm-futo) | `sq_typing_v1.1_Q8_0.gguf` + PyTorch checkpoint |
+| [mandododo/greek-dictionary-futo](https://huggingface.co/datasets/mandododo/greek-dictionary-futo) (dataset) | `Greek-main_el.dict` + `.combined` source |
+| [mandododo/albanian-dictionary-futo](https://huggingface.co/datasets/mandododo/albanian-dictionary-futo) (dataset) | `Albanian-main_sq.dict` + `.combined` source |
+| [mandododo/polyglot-cleanup-qwen3-1.7b](https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b) | `Cleanup-v2-q4_0.gguf` + NOTICE and licences |
 
 ## Files
 

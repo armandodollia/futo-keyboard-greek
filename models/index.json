@@ -10,27 +10,27 @@
       "version": 1,
       "size": 264464624,
       "sha256": "415e7da71f8ebea62a319beeaacfde75c2285f8b52d28cc3652de7cb475b1d31",
-      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-244-v4.bin",
+      "url": "https://huggingface.co/mandododo/whisper-small-greek-futo/resolve/main/Greek-244-v4.bin",
       "license": "MIT",
-      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/README.md",
+      "info_url": "https://huggingface.co/mandododo/whisper-small-greek-futo",
       "variants": [
         {
           "name": "small",
           "size": 264464624,
           "sha256": "415e7da71f8ebea62a319beeaacfde75c2285f8b52d28cc3652de7cb475b1d31",
-          "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-244-v4.bin"
+          "url": "https://huggingface.co/mandododo/whisper-small-greek-futo/resolve/main/Greek-244-v4.bin"
         },
         {
           "name": "base",
           "size": 81768602,
           "sha256": "3507a83e5221ae2ae33143f4c24b2ced4d6428981f43aff95e069e62a5b9459b",
-          "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-74-v4.bin"
+          "url": "https://huggingface.co/mandododo/whisper-base-greek-futo/resolve/main/Greek-74-v4.bin"
         },
         {
           "name": "tiny",
           "size": 43537450,
           "sha256": "9861d703fec4dcea55703ddbba5a8523d327c26b665ae32b603c21eb6a152f86",
-          "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-39-v4.bin"
+          "url": "https://huggingface.co/mandododo/whisper-tiny-greek-futo/resolve/main/Greek-39-v4.bin"
         }
       ]
     },
@@ -43,9 +43,9 @@
       "version": 1,
       "size": 264464624,
       "sha256": "2011e011dffb0efb58799bfaf30fbada789063560e4d661db9e9e8760da03564",
-      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Albanian-244-v2.bin",
+      "url": "https://huggingface.co/mandododo/whisper-small-albanian-futo/resolve/main/Albanian-244-v2.bin",
       "license": "MIT (see data caveat)",
-      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/README.md"
+      "info_url": "https://huggingface.co/mandododo/whisper-small-albanian-futo"
     },
     {
       "id": "typing-el",
@@ -56,9 +56,9 @@
       "version": 1,
       "size": 47209440,
       "sha256": "5b4ccc0fe21a5f920b8198d04222cb21b435b56b9547fd8a716aca0d8b5d9ce5",
-      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/el_typing_v1.1_Q8_0.gguf",
+      "url": "https://huggingface.co/mandododo/greek-typing-lm-futo/resolve/main/el_typing_v1.1_Q8_0.gguf",
       "license": "MIT",
-      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/README.md"
+      "info_url": "https://huggingface.co/mandododo/greek-typing-lm-futo"
     },
     {
       "id": "typing-sq",
@@ -69,9 +69,9 @@
       "version": 1,
       "size": 47044256,
       "sha256": "1a9ad13033c1a4cb7e9ae71d65865267621bd3932c16a6028cb9088d49947abe",
-      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/sq_typing_v1.1_Q8_0.gguf",
+      "url": "https://huggingface.co/mandododo/albanian-typing-lm-futo/resolve/main/sq_typing_v1.1_Q8_0.gguf",
       "license": "MIT",
-      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/README.md"
+      "info_url": "https://huggingface.co/mandododo/albanian-typing-lm-futo"
     },
     {
       "id": "dictionary-el",
@@ -82,9 +82,9 @@
       "version": 1,
       "size": 9297026,
       "sha256": "19f4f8ab74a3a19713d4d650b541cec11767ad4a4ae88baf75cb6514e3e9626e",
-      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-main_el.dict",
+      "url": "https://huggingface.co/datasets/mandododo/greek-dictionary-futo/resolve/main/Greek-main_el.dict",
       "license": "GPL-3.0",
-      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/README.md"
+      "info_url": "https://huggingface.co/datasets/mandododo/greek-dictionary-futo"
     },
     {
       "id": "dictionary-sq",
@@ -95,9 +95,9 @@
       "version": 1,
       "size": 1170549,
       "sha256": "3674818631bc1439044ccd99e16eff41120a129e24795d36a1b6786047b7f9f6",
-      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Albanian-main_sq.dict",
+      "url": "https://huggingface.co/datasets/mandododo/albanian-dictionary-futo/resolve/main/Albanian-main_sq.dict",
       "license": "MIT",
-      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/README.md"
+      "info_url": "https://huggingface.co/datasets/mandododo/albanian-dictionary-futo"
     },
     {
       "id": "cleanup",
@@ -108,9 +108,9 @@
       "version": 1,
       "size": 1054422816,
       "sha256": "3ebd17023804d8de4249a0983a8b3db4ddc49b30a780ec832e6d0d8443676369",
-      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Cleanup-v2-q4_0.gguf",
+      "url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b/resolve/main/Cleanup-v2-q4_0.gguf",
       "license": "Apache-2.0, plus the Gemma Terms of Use (use restrictions apply)",
-      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/NOTICE"
+      "info_url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b"
     }
   ]
 }
