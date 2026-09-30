@@ -163,6 +163,19 @@
       "url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b/resolve/main/adapters/cleanup-en-lora-f16.gguf",
       "license": "Apache-2.0, plus the Gemma Terms of Use (use restrictions apply)",
       "info_url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b"
+    },
+    {
+      "id": "cleanup-adapter-es",
+      "kind": "cleanup-adapter",
+      "locale": "es",
+      "title": "Spanish cleanup adapter",
+      "description": "Small LoRA file that specialises the cleanup base for Spanish dictation. Trained mostly on Mexican Spanish; keeps Spain and Argentine usage (vosotros, vos, che, vale) as spoken. Downloads the base too if it is missing.",
+      "version": 1,
+      "size": 34892448,
+      "sha256": "4ad00f734e9a80f070ed63f6ea9d7685dccc70bee6337404434a7dbb2bd5118d",
+      "url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b/resolve/main/adapters/cleanup-es-lora-f16.gguf",
+      "license": "Apache-2.0",
+      "info_url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b"
     }
   ]
 }

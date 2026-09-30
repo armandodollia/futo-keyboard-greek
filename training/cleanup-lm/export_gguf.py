@@ -52,7 +52,17 @@ def main():
     out = pathlib.Path(a.out); out.parent.mkdir(parents=True, exist_ok=True)
 
     if a.adapter:
-        base = ["--base", a.base] if pathlib.Path(a.base).is_dir() else ["--base-model-id", a.base]
+        base_dir = a.base
+        if not pathlib.Path(base_dir).is_dir():
+            # Fetch the base's config/tokenizer (no weights) and pass a folder: with --base-model-id,
+            # convert_lora_to_gguf.py names the adapter after the base ("general.name = Qwen/Qwen3-1.7B") instead of
+            # after the adapter folder like the published adapters ("Cleanup El Adapter").
+            try:
+                from huggingface_hub import snapshot_download
+                base_dir = snapshot_download(a.base, allow_patterns=["*.json", "*.txt"])
+            except Exception as e:  # noqa: BLE001
+                print(f"could not fetch {a.base} ({e}); falling back to --base-model-id", flush=True)
+        base = ["--base", base_dir] if pathlib.Path(base_dir).is_dir() else ["--base-model-id", a.base]
         run([sys.executable, str(root / "convert_lora_to_gguf.py"), a.adapter, *base, "--outtype", "f16",
              "--outfile", str(out)])
     elif a.model:

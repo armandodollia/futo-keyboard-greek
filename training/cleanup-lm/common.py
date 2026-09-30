@@ -95,6 +95,8 @@ class Lang:
         self.swear_exact = {strip_acc(s) for s in cfg.get("swear_exact", [])}
         self.detect = re.compile(cfg["detect"], re.I) if cfg.get("detect") else None
         self.hard_cases = cfg.get("hard_cases", [])
+        self.teacher_note = cfg.get("teacher_note", "")   # extra instruction for this language's rambler teacher
+        self.no_add_words = [strip_acc(w) for w in cfg.get("no_add_words", [])]   # a rewrite may not introduce these
         m = {"filler": 0.10, "repeat": 0.04, "false_start": 0.02, "correction": 0.35, "lead_filler": 0.30,
              "correction_filler": 0.08}
         m.update(cfg.get("messy", {}))
@@ -109,6 +111,15 @@ def load_lang(spec: str) -> Lang:
         raise SystemExit(f"no config {p}: copy languages/template.jsonc to languages/<code>.json and fill it in")
     text = "\n".join(l for l in p.read_text(encoding="utf-8").splitlines() if not l.lstrip().startswith("//"))
     return Lang(json.loads(text))
+
+
+def added_words(src: str, out: str, lang: Lang) -> list:
+    """Words/phrases from the config's no_add_words that appear in out but not in src (a teacher adding slang or
+    another dialect's words, e.g. "neta" or "vosotros", that the speaker never said)."""
+    def padded(t):
+        return " " + " ".join(re.findall(r"\w+", strip_acc(t))) + " "
+    s, o = padded(src), padded(out)
+    return [w for w in lang.no_add_words if f" {w} " in o and f" {w} " not in s]
 
 
 def strip_acc(w: str) -> str:
@@ -139,7 +150,8 @@ def messy(text: str, lang: Lang, rng) -> str:
     """Turn a clean message into plausible raw dictation: lowercase, no punctuation, fillers, repeated words, false
     starts, an inline self-correction ("..., no wait, ...") and sometimes a leading filler."""
     p = lang.p
-    words = re.findall(r"[\w'’-]+", text.lower())
+    # NFC first: with decomposed accents (NFD, common in scraped text) \w stops at the combining mark, "cuál" -> "cua l"
+    words = re.findall(r"[\w'’-]+", unicodedata.normalize("NFC", text).lower())
     out = []
     for i, w in enumerate(words):
         r = rng.random()

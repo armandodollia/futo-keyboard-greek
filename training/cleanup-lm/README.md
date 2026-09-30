@@ -94,14 +94,19 @@ pip install -r requirements.txt
    python sample_sources.py --lang pt --out work/sources_pt.txt --n 8000 \
        --source subtitles.txt:0.45:join --source forum.txt:0.3 --source web.txt:0.25 --always slang.txt
    ```
-   Read a hundred lines. Swearing and slang must be there, or the model will learn to drop them.
+   Add `--tidy` for tweets and chat, which often lack capitals and closing punctuation. Read a hundred lines.
+   Swearing and slang must be there, or the model will learn to drop them.
 3. **Start a teacher** and generate pairs. See "Teacher options" below.
    ```sh
    python gen_pairs.py --lang pt --sources work/sources_pt.txt --out work/pairs_pt.jsonl \
        --url http://localhost:8080/v1 --workers 6
    ```
-   Read some rambler rewrites. If the teacher censors, translates or chatters, pick another teacher.
+   Read some rambler rewrites. If the teacher censors, translates, chatters or adds words, pick another teacher or
+   use the config's `teacher_note` and `no_add_words`.
 4. **Add correction pairs:** `python augment_corrections.py --work work`
+   Then hold out a test set before training: `python train_cleanup.py --work work --split-only --val-per-lang 300`
+   (otherwise the first training run creates it). It is held out by message: no pair and no correction pair built
+   from a held-out message is trained on.
 5. **Train.** Include the existing languages' pairs in `work/` to get one shared model, which is what the app's
    *Download on-device model* installs. Alternatively train a per-language adapter (see "Per-language adapters" below).
    ```sh
@@ -209,9 +214,103 @@ Adding a language this way needs no retraining of the others and ships a 33 MB f
 6. **Publish:** add a `cleanup-adapter` entry with `"locale": "pt"` to `models/index.json` (see the index section in
    `models/README.md`). The app shows a "Per-language models: base + Portuguese" row for it.
 
+**Dialect adapters** (patch 0006). Where one adapter per language is not enough, ship one per major dialect: name the
+file `cleanup-<lang>-<region>-lora-f16.gguf` (e.g. `cleanup-es-lora-f16.gguf`) and publish it with a BCP-47
+`"locale"` of `<lang>-<REGION>` (`"es-MX"`, `"es-ES"`, `"es-419"`); the app stores it as `adapter-es-MX.gguf` and
+titles the row "Spanish (Mexico)". Train it with the same prompt as the plain adapter: the system prompt names the
+**language only** (`Language: Spanish`), never the region, because that is what the app sends. For a dictation, the
+app picks the first installed of: the adapter for the keyboard locale's region (FUTO's Spanish keyboards are `es`,
+`es_419` and `es_US`), the dialect chosen in Settings → Dictation cleanup (shown once two or more dialects of a
+language are installed), the system locale's region if the system language matches, the plain `<lang>` adapter, and
+finally any other installed dialect of the language.
+
 The base file itself is stock Qwen3-1.7B: `convert_hf_to_gguf.py` → f16 → `llama-quantize … Q4_0`. The Hugging Face
 checkpoint stores the tied `lm_head.weight` explicitly; drop it before converting (it is identical to
 `embed_tokens`), or the GGUF carries a second 622 MB (f16) output matrix.
+
+## Adding a language: worked example (Mexican Spanish)
+
+This is the first language added with this folder's tooling alone: a per-language adapter for Spanish, trained on
+mostly Mexican text. Everything ran on one PC with an RTX 4090 that also served the teacher.
+
+**Config:** `languages/es.json`. One config for all Spanish (`es`), Mexican-leaning, because the app sends
+`Language: Spanish` for every Spanish locale. Choices worth copying:
+
+- `¿no?` and `¿verdad?` are *not* fillers. The messy-dictation rule inserts fillers before random words, and a stray
+  "no" would teach the model to delete real negations. `eh` and `este` are listed twice to make them more frequent.
+- Swear stems avoid innocent prefixes: `pinche` is exact (not `pinch`, which starts *pinchar*), `cabron` not `cabr`
+  (*cabría*), `mamon`/`mamad` not `mam` (*mamá*), `verga` not `verg` (*vergüenza*). Güey is slang, not a swear.
+- `teacher_note` (new) tells the teacher to keep the speaker's dialect and never add slang. A first note that said
+  "most messages are Mexican" made gemma-4 add "neta" or "no mames" to 3.4% of the rewrites, including to Spain
+  Spanish; `no_add_words` (new) now rejects any rewrite that adds one of those words.
+
+**Sources** (8,438 messages): tweets from Mexico (`JorgeLoera/spanish-dialect-tweets`, CC-BY-4.0; 3,850 plus 1,750
+with swearing), FineWeb-2 `spa_Latn` test split filtered to `.mx` URLs and cut into 1-3 sentence chunks (ODC-By; 1,400),
+1,289 WhatsApp-style messages written by the teacher, and 149 hand-written slang sentences. Mentions, links and emoji
+were stripped first. About 25% of the messages contain swearing.
+
+```sh
+python sample_sources.py --lang es --out work/sources_es.txt --n 7000 --tidy \
+    --source tweets_mx.txt:0.55 --source tweets_mx_swear.txt:0.25 --source web_mx.txt:0.2 \
+    --always hand_mx.txt --always synth_mx.txt
+python gen_pairs.py --lang es --sources work/sources_es.txt --out work/pairs_es.jsonl --n 9000 \
+    --url http://localhost:8080/v1 --workers 6 --wait-cmd "<exits 0 while the teacher is up>"  # 49 min
+python augment_corrections.py --work work                                               # 3,000 items, <1 s
+python train_cleanup.py --work work --lang es --split-only --val-per-lang 300          # hold out 300 messages
+python train_cleanup.py --work work --lang es --rank 16 --batch 8 --accum 4 --out work/out/cleanup-es-mx
+python eval_cleanup.py --work work --corrections 100 --hard --save-outputs es=work/out/cleanup-es-mx-adapter
+python export_gguf.py --llama-cpp ../llama.cpp --adapter work/out/cleanup-es-mx-adapter --out cleanup-es-lora-f16.gguf
+```
+
+`--wait-cmd` pauses generation while a shared teacher server serves another model. `--tidy` capitalizes and closes
+tweets, which often have neither (the light targets are the messages themselves).
+
+**Timings** (RTX 4090 with the 12B teacher resident, so batch 8 × 4 accumulation instead of 16 × 2):
+
+| step | time |
+| --- | --- |
+| teacher-written messages (1,289) | ~5 min |
+| pairs: 8,438 light + 8,396 rambler (6 parallel requests, gemma-4-12b Q4) | 49 min |
+| training: 21,988 pairs, 2 epochs, 1,374 steps, rank 16 | 27 min (30 min with loading and saving) |
+| evaluation: 300 held-out pairs + 100 corrections + 18 hard cases, bf16 | 12 min |
+| LoRA → GGUF f16 (34.9 MB) | 10 s |
+
+**Results** on the 300 held-out Mexican messages (none of their pairs, and no correction pair built from them, were
+trained on):
+
+| model | similarity (1 − CER) | light / rambler | swears kept | language kept | trailing corrections |
+| --- | --- | --- | --- | --- | --- |
+| Qwen3-1.7B + `es` adapter | **90.8%** | 97.2% / 83.5% | 89.6% | 98.7% | **93.0%** |
+| stock Qwen3-1.7B, no adapter | 65.7% | 75.2% / 54.8% | 100%* | 98.0% | 63.2% |
+| shared `Cleanup-v2` (el+sq+en) | 80.5% | 85.9% / 74.3% | 89.6% | 97.7% | 78.6% |
+| Qwen3-1.7B + `en` adapter | 76.9% | 83.2% / 69.8% | 88.5% | 95.3% | 67.1% |
+
+\* The stock model mostly echoes the transcript, so it keeps every swear word, and every filler.
+
+In llama.cpp (Q4_0 base + f16 adapter, CPU, the app's raw prompt, first 20 held-out items) the adapter scored 90.5%
+against 91.7% in bf16 PyTorch (96.8% agreement between the two); the Q4_0 base without the adapter scored 71.8%.
+
+**Dialect check.** Does a Mexican-trained adapter turn other Spanish into Mexican Spanish? Two extra held-out sets of
+100 items each (about 70 light, 30 rambler), messy-dictated the same way: Spain (tweets from Spain with *vosotros*,
+*tío*, *vale*, *joder*, *hostia*, plus 40 hand-written sentences) and Rioplatense (tweets from Argentina with *vos
+tenés*, *che*, *boludo*, *re*, *laburo*, plus 40 hand-written). Each dialect word in the target was checked in the
+output:
+
+| set | model | similarity | dialect words kept | rewrites towards Mexican/neutral |
+| --- | --- | --- | --- | --- |
+| Spain | `es` adapter | 91.8% | 109/110 | 0 (no vosotros→ustedes, tío→güey, vale→órale) |
+| Spain | `Cleanup-v2` | 80.5% | 108/110 | 0 |
+| Rioplatense | `es` adapter | 92.8% | 123/124 | 1 (one rambler "¿Tenés…?" → "¿Tienes…?") |
+| Rioplatense | `Cleanup-v2` | 80.7% | 121/124 | 1 |
+
+No model added a Mexicanism (güey, neta, ustedes, …) to any Spain or Argentina item. The adapter scores higher on the
+other dialects than on its own set, probably because those sets have more hand-written, well-punctuated sentences.
+**One `es` adapter is enough**; separate es-MX/es-ES/es-AR adapters are not needed for cleanup. (The app's dialect-adapter
+mechanism is still there for a language whose dialects really differ in writing.)
+
+**Still weak:** light mode punctuates less than it should (commas, opening ¿ ¡), because tweets are lightly
+punctuated, and it keeps misheard or missing accents ("le mande", "no le llego"), because it is trained to keep the
+words.
 
 ## Files
 

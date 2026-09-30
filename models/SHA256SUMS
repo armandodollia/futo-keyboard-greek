@@ -14,3 +14,4 @@ d999594c4b1e29300a6eabd08baad9caf23d2bc7829d6b37a07cab0cc96cdab9  qwen3-1.7b-q4_
 1588d35d0a4c36e018c154d68e391d284bec204390aedad51d22ac1efcab7ed2  cleanup-el-lora-f16.gguf
 380ec3ead09ffa52e2303b6aa8047aaf128a84f054ff250d912c74ce95a78c0e  cleanup-sq-lora-f16.gguf
 1c0985f134b067797f26310e7c2a1759ee31a0addf0df191dfca7bd99c54d187  cleanup-en-lora-f16.gguf
+4ad00f734e9a80f070ed63f6ea9d7685dccc70bee6337404434a7dbb2bd5118d  cleanup-es-lora-f16.gguf

@@ -12,11 +12,14 @@ Two ways to get them (combinable):
 Usage: python sample_sources.py --lang el --out work/sources_el.txt --n 8000 --source subs.txt:0.45:join \
          --source reddit.txt:0.15 --always slang.txt
        python sample_sources.py --lang en --out work/sources_en.txt --n 8000 --opus
+--tidy gives every message a capital first letter and closing punctuation (for tweets and chat, which often lack
+them: the light targets are the messages themselves).
 """
 import argparse
 import gzip
 import random
 import re
+import unicodedata
 import urllib.request
 
 from common import load_lang, strip_acc
@@ -30,8 +33,9 @@ def ok(t):
 
 
 def sample(path, n, rng, join_lines):
-    # reservoir-style sampling over a large file, joining 1-3 consecutive lines for dialogue sources
-    out, buf = [], []
+    # reservoir sampling (uniform over the whole file), joining 1-3 consecutive lines for dialogue sources. The first
+    # version replaced with a fixed ~2% chance, which over-weighted the start of the file (or its end, for big files).
+    out, buf, seen = [], [], 0
     for line in open(path, encoding="utf-8", errors="ignore"):
         line = line.strip()
         if not line:
@@ -41,11 +45,26 @@ def sample(path, n, rng, join_lines):
         if len(buf) >= k:
             t = " ".join(buf); buf = []
             if ok(t):
+                seen += 1
                 if len(out) < n:
                     out.append(t)
-                elif rng.random() < n / (len(out) + 1) * 0.02:
+                elif rng.random() < n / seen:
                     out[rng.randrange(n)] = t
+    if len(out) < n:
+        print(f"note: {path} has only {len(out)} usable messages (asked for {n})", flush=True)
     return out
+
+
+def tidy(t):
+    """Capital first letter and closing punctuation, so the light targets always look like finished messages (chat
+    and tweet sources often have neither, and the model would learn to leave dictation unpunctuated)."""
+    t = t.strip()
+    i = next((i for i, c in enumerate(t) if c.isalpha()), None)
+    if i is not None:
+        t = t[:i] + t[i].upper() + t[i + 1:]
+    if not t.endswith((".", "!", "?", "…", ")", '"', "»")):
+        t += "."
+    return t
 
 
 def opus(lang, n, swear_share, rng, max_lines):
@@ -83,6 +102,8 @@ def main():
     ap.add_argument("--opus", action="store_true", help="sample --n messages from OPUS OpenSubtitles instead")
     ap.add_argument("--swear-share", type=float, default=0.3, help="share of OPUS messages that contain swearing")
     ap.add_argument("--max-lines", type=int, default=20_000_000, help="stop streaming OPUS after this many lines")
+    ap.add_argument("--tidy", action="store_true",
+                    help="capitalize the first letter and add a final period where missing (chat/tweet sources)")
     a = ap.parse_args()
 
     lang = load_lang(a.lang)
@@ -98,6 +119,10 @@ def main():
         msgs += opus(lang, a.n, a.swear_share, rng, a.max_lines)
     if not msgs:
         raise SystemExit("nothing sampled: give --source, --always or --opus")
+    msgs = [unicodedata.normalize("NFC", m) for m in msgs]   # scraped text often has decomposed accents
+    if a.tidy:
+        msgs = [tidy(m) for m in msgs]
+    msgs = list(dict.fromkeys(msgs))   # the same message from two sources
     rng.shuffle(msgs)
     with open(a.out, "w", encoding="utf-8") as f:
         f.write("\n".join(msgs) + "\n")

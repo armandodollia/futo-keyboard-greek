@@ -28,7 +28,7 @@ keep `NOTICE`, `ATTRIBUTION.md` and the matching licence with it.
 | [mandododo/albanian-typing-lm-futo](https://huggingface.co/mandododo/albanian-typing-lm-futo) | `sq_typing_v2_Q8_0.gguf` (and v1.1) + PyTorch checkpoints |
 | [mandododo/greek-dictionary-futo](https://huggingface.co/datasets/mandododo/greek-dictionary-futo) (dataset) | `Greek-main_el.dict` + `.combined` source |
 | [mandododo/albanian-dictionary-futo](https://huggingface.co/datasets/mandododo/albanian-dictionary-futo) (dataset) | `Albanian-main_sq.dict` + `.combined` source |
-| [mandododo/polyglot-cleanup-qwen3-1.7b](https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b) | `Cleanup-v2-q4_0.gguf`, the per-language option (`base/qwen3-1.7b-q4_0.gguf` + `adapters/cleanup-{el,sq,en}-lora-f16.gguf`) + NOTICE and licences |
+| [mandododo/polyglot-cleanup-qwen3-1.7b](https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b) | `Cleanup-v2-q4_0.gguf`, the per-language option (`base/qwen3-1.7b-q4_0.gguf` + `adapters/cleanup-{el,sq,en,es}-lora-f16.gguf`) + NOTICE and licences |
 
 ## Files
 
@@ -69,12 +69,21 @@ Sizes are in MiB. `SHA256SUMS` in this folder has the same checksums in `sha256s
 | `adapters/cleanup-el-lora-f16.gguf` (Hugging Face only) | 34,892,448 | `1588d35d0a4c36e018c154d68e391d284bec204390aedad51d22ac1efcab7ed2` |
 | `adapters/cleanup-sq-lora-f16.gguf` (Hugging Face only) | 34,892,448 | `380ec3ead09ffa52e2303b6aa8047aaf128a84f054ff250d912c74ce95a78c0e` |
 | `adapters/cleanup-en-lora-f16.gguf` (Hugging Face only) | 34,892,448 | `1c0985f134b067797f26310e7c2a1759ee31a0addf0df191dfca7bd99c54d187` |
+| `adapters/cleanup-es-lora-f16.gguf` (Hugging Face only) | 34,892,448 | `4ad00f734e9a80f070ed63f6ea9d7685dccc70bee6337404434a7dbb2bd5118d` |
 
 **Per-language cleanup files.** Instead of the shared `Cleanup-v2` model you can use one base (stock Qwen3-1.7B,
 Q4_0, 1.0 GB) plus a small LoRA adapter per language (33 MB each), trained on the stock base with the same data and
 prompt. Adding a language then means one small file, not a new 1 GB model. They are on
 [Hugging Face](https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b) under `base/` and `adapters/`. The base
 on its own is not trained for cleanup, so it is only used together with an adapter.
+
+**Spanish adapter** (`cleanup-es`, Apache-2.0 only: its teacher was Gemma 4, so no Gemma 3 terms). Trained on mostly
+Mexican Spanish (tweets from Mexico, `.mx` web text, WhatsApp-style messages; no subtitles, no Reddit). On 300
+held-out Mexican messages: similarity 90.8% (shared `Cleanup-v2` 80.5%, bare base 65.7%), swears kept 89.6%, trailing
+self-corrections 93.0% (Cleanup-v2 78.6%). Dialect check on held-out Spain and Argentine Spanish: 91.8% / 92.8%
+similarity with dialect words kept (vosotros, tío, vale; vos, che, boludo) and one rewrite in 200 items (a rambler
+"¿Tenés…?" → "¿Tienes…?"), so one `es` adapter serves all Spanish. Weak spot: light punctuation (few commas,
+opening ¿/¡ often missing).
 
 Check a download with `sha256sum -c SHA256SUMS --ignore-missing` (Linux/macOS) or `certutil -hashfile <file> SHA256`
 (Windows).
@@ -123,7 +132,9 @@ away. Mild insults and everyday slang are not flagged.
 - **On the phone:** Settings → Voice input → Dictation cleanup → **Import on-device model (.gguf)**, then choose the
   local or a parallel strategy. It needs a 64-bit phone with enough free memory for a 1 GB model.
 - **Per-language, on the phone (patch 0005):** download a *Per-language models* row on the same screen. The app
-  keeps the files in its private folder as `base.gguf` + `adapter-<lang>.gguf`. For dictation in a language that has
+  keeps the files in its private folder as `base.gguf` + `adapter-<lang>.gguf` (or `adapter-<lang>-<REGION>.gguf`
+  for a dialect, e.g. `adapter-es-MX.gguf`; with several dialects of a language installed, the screen lets you pick
+  the one to use when the keyboard language does not name a region). For dictation in a language that has
   an adapter it runs the base with that adapter; for other languages it uses the shared model if installed, and
   otherwise skips on-device cleanup. Only the shared model can be imported by hand.
 - **Per-language, on your own server:**
@@ -178,10 +189,14 @@ this. To publish a model or a new version, edit `index.json`:
   - `cleanup`: the shared, merged cleanup `.gguf`; `locale` is `*`. At most one.
   - `cleanup-base`: the base model for the per-language adapters (stock Qwen3-1.7B `.gguf`); `locale` is `*`. At
     most one. It is listed only together with the adapters, never used on its own.
-  - `cleanup-adapter`: a LoRA adapter `.gguf` for the `cleanup-base`; `locale` is the bare language code (`el`), the
-    one the app gets from the voice input language. One per language. The Dictation cleanup screen shows a
-    "Per-language models: base + &lt;Language&gt;" row for each, which downloads the base too when it is missing or
-    outdated. An adapter must be converted against the exact base in the index (same architecture and tensor
+  - `cleanup-adapter`: a LoRA adapter `.gguf` for the `cleanup-base`; `locale` is the bare language code (`el`), or
+    `<lang>-<REGION>` in BCP-47 form (`es-MX`, `es-ES`, `es-419`) for a dialect adapter (patch 0006). One per
+    language or dialect. The Dictation cleanup screen shows a "Per-language models: base + &lt;Language&gt;" row for
+    each ("Spanish (Mexico)" for a dialect), which downloads the base too when it is missing or outdated. For a
+    dictation the app uses the adapter for the keyboard language's region, else the dialect picked on that screen
+    (or, if none is picked, the system locale's region), else the plain language adapter, else any installed dialect
+    of the language. Apps with patch 0005 but not 0006 show a dialect entry as a second row for the plain language
+    and install it as that language's adapter. An adapter must be converted against the exact base in the index (same architecture and tensor
     shapes); if you replace the base with a different model, retrain the adapters and raise their `version`.
 
   Apps from before patch 0005 ignore `cleanup-base` and `cleanup-adapter`, so they can be added without a schema
@@ -229,7 +244,7 @@ Wikipedia text (Albanian); slang is a held-out set of slang, insult and swearing
 On greta44/albanian-error-augmentation (2,495 linguist-made Albanian misspellings), `sq_typing_v1.1` puts the correct
 word in its top 3 for 58.2%. The data was not trained on, but its error types informed the model's synthetic typos.
 
-**Dictation cleanup** (`Cleanup-v2`, held-out pairs never trained on):
+**Dictation cleanup** (`Cleanup-v2`, held-out pairs never trained on as the same pair; see the caveat below the table):
 
 | Metric | Result |
 |---|---|
@@ -237,6 +252,10 @@ word in its top 3 for 58.2%. The data was not trained on, but its error types in
 | Swear words kept | 93.1% |
 | Output stays in the input language | 99.3% |
 | Held-out trailing self-corrections ("… five, no wait, six") | 87.8% |
+
+*Caveat:* these Greek/Albanian/English numbers were measured with a split that held out pairs, not messages: the
+same message in the other mode (light/rambler) and correction items built from it could still be in training, so
+they are somewhat optimistic. The training tooling now holds out whole messages (the Spanish numbers use it).
 
 **Per-language adapters vs the shared model.** Held-out pairs, similarity to the target (1 − CER), bf16
 Transformers, all held-out items per language:

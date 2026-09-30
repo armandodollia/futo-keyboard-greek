@@ -38,6 +38,13 @@
     ["rambler", "you idiot uh if you are late again I swear I will kill you seriously"]
   ],
 
+  // Optional: one or two sentences appended to the teacher's rambler instruction for this language only, e.g. to keep
+  // a dialect ("Keep Mexican usage: ustedes, never vosotros; keep vos/tenés, tío, vale, che exactly as spoken").
+  // "teacher_note": "",
+  // Optional: words or short phrases a teacher rewrite may not ADD (it may keep them when the speaker said them), e.g.
+  // slang or another dialect's words the teacher likes to sprinkle in. Such rewrites are rejected.
+  // "no_add_words": [],
+
   // Optional: probabilities of the messy-dictation rules (defaults shown). Lower "filler" for languages whose
   // speakers rarely hesitate aloud, raise "correction" if you want more self-corrections.
   // "messy": {"filler": 0.10, "repeat": 0.04, "false_start": 0.02, "correction": 0.35, "lead_filler": 0.30,

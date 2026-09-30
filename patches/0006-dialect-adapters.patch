@@ -1,0 +1,171 @@
+diff --git a/java/src/org/futo/inputmethod/latin/uix/actions/VoiceInputAction.kt b/java/src/org/futo/inputmethod/latin/uix/actions/VoiceInputAction.kt
+index 55ff61ba1..01de7a612 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/actions/VoiceInputAction.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/actions/VoiceInputAction.kt
+@@ -297,7 +297,8 @@ private class VoiceInputActionWindow(
+             inputTransaction.updatePartial(sanitized)
+             cleaningUp.value = true
+             cleanupJob = manager.getLifecycleScope().launch(Dispatchers.Main) {
+-                val cleaned = DictationCleanup.clean(context, sanitized, locales.firstOrNull()?.language)
++                // keyboard locale incl. region ("es-US", "es-419"), for dialect adapters
++                val cleaned = DictationCleanup.clean(context, sanitized, locales.firstOrNull()?.toLanguageTag())
+                 commitAndClose(cleaned.text)
+             }
+         }
+diff --git a/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanup.kt b/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanup.kt
+index 454f5c7ec..d3aeb7f07 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanup.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanup.kt
+@@ -65,6 +65,10 @@ object CleanupPrompts {
+     fun languageName(code: String?): String? = code?.takeIf { it.isNotBlank() }
+         ?.let { java.util.Locale.forLanguageTag(it).getDisplayLanguage(java.util.Locale.ENGLISH) }?.takeIf { it.isNotBlank() }
+ 
++    /** English name with the region, for dialect adapters ("es-MX" -> "Spanish (Mexico)", "el" -> "Greek"). */
++    fun displayName(tag: String): String = java.util.Locale.forLanguageTag(tag.replace('_', '-'))
++        .getDisplayName(java.util.Locale.ENGLISH).ifBlank { tag }
++
+     private fun languageNameOrGeneric(code: String?) = languageName(code) ?: "the speaker's language"
+ 
+     fun system(mode: String, language: String?): String {
+diff --git a/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt b/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt
+index e9ee5b09a..5bef73c7b 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt
+@@ -33,12 +33,29 @@ private fun localStatusText(context: android.content.Context): String = when {
+     else -> listOfNotNull(
+         if (LocalLlm.hasModel(context)) "On-device model installed (${LocalLlm.modelFile(context).length() / 1_000_000} MB)." else null,
+         LocalLlm.adapterLanguages(context).takeIf { it.isNotEmpty() }?.let { langs ->
+-            "Per-language models installed: " + langs.joinToString { CleanupPrompts.languageName(it) ?: it } + "."
++            "Per-language models installed: " + langs.joinToString { CleanupPrompts.displayName(it) } + "."
+         },
+         "It loads on first use."
+     ).joinToString(" ")
+ }
+ 
++/** For each language with several dialect adapters installed: which one to use when the keyboard doesn't say. */
++@Composable
++private fun DialectChoices(installed: List<String>) {
++    installed.groupBy { LocalLlm.langCode(it) }.filterValues { it.size > 1 }.forEach { (lang, tags) ->
++        val regions = tags.mapNotNull { LocalLlm.regionCode(it) }
++        if (regions.isEmpty()) return@forEach
++        SettingRadio(
++            title = "${CleanupPrompts.languageName(lang) ?: lang} dialect for cleanup",
++            options = listOf("") + regions,
++            optionNames = listOf("Automatic (from keyboard)") + regions.map {
++                java.util.Locale.forLanguageTag("$lang-$it").getDisplayCountry(java.util.Locale.ENGLISH).ifBlank { it }
++            },
++            setting = useDataStore(LocalLlm.dialectKey(lang), "")
++        )
++    }
++}
++
+ private const val TEST_SAMPLE =
+     "εεε λοιπόν θα έρθω αύριο στις πέντε όχι συγγνώμη στις έξι και θα φέρω και τα γλυκά εντάξει"
+ 
+@@ -99,6 +116,7 @@ fun DictationCleanupScreen(navController: NavHostController = rememberNavControl
+             modifier = Modifier.fillMaxWidth().padding(16.dp, 4.dp)) { Text("Import on-device model (.gguf)") }
+         org.futo.inputmethod.latin.uix.downloads.CleanupModelDownload(LocalLlm.isSupported()) { localStatus.value = localStatusText(context) }
+         org.futo.inputmethod.latin.uix.downloads.CleanupAdapterDownloads(LocalLlm.isSupported()) { localStatus.value = localStatusText(context) }
++        DialectChoices(remember(localStatus.value) { LocalLlm.adapterLanguages(context) })
+         if (LocalLlm.hasAnyModel(context)) {
+             Button(onClick = {
+                 scope.launch { LocalLlm.remove(context); LocalCleanupModel.ensureRegistered(context); localStatus.value = localStatusText(context) }
+diff --git a/java/src/org/futo/inputmethod/latin/uix/cleanup/LocalLlm.kt b/java/src/org/futo/inputmethod/latin/uix/cleanup/LocalLlm.kt
+index 514dae354..0dff0ca88 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/cleanup/LocalLlm.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/cleanup/LocalLlm.kt
+@@ -1,20 +1,24 @@
+ package org.futo.inputmethod.latin.uix.cleanup
+ 
+ import android.content.Context
++import android.content.res.Resources
+ import android.net.Uri
+ import android.util.Log
++import androidx.datastore.preferences.core.stringPreferencesKey
+ import kotlinx.coroutines.CoroutineDispatcher
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.asCoroutineDispatcher
+ import kotlinx.coroutines.withContext
++import org.futo.inputmethod.latin.uix.getSetting
+ import java.io.File
+ import java.util.concurrent.Executors
+ 
+ /**
+  * On-device dictation cleanup: a fine-tuned small model (GGUF, e.g. Qwen3-1.7B Q4_0) run by libllmcleanup.so
+  * (modern llama.cpp, CPU). The model file lives in filesDir/cleanup-models/cleanup.gguf, imported from settings.
+- * Per-language option: base.gguf (stock Qwen3-1.7B) + adapter-<lang>.gguf (LoRA) in the same folder. For a language
+- * with an adapter the base + adapter is used; otherwise the merged cleanup.gguf. The base is never used unadapted.
++ * Per-language option: base.gguf (stock Qwen3-1.7B) + adapter-<lang>.gguf or adapter-<lang>-<REGION>.gguf (LoRA,
++ * e.g. adapter-es-MX.gguf for a dialect) in the same folder. For a language with an adapter the base + adapter is used;
++ * otherwise the merged cleanup.gguf. The base is never used unadapted.
+  */
+ object LocalLlm {
+     private const val TAG = "LocalLlm"
+@@ -39,14 +43,21 @@ object LocalLlm {
+     private fun dir(context: Context) = File(context.filesDir, "cleanup-models")
+     fun modelFile(context: Context) = File(dir(context), "cleanup.gguf")
+     fun baseFile(context: Context) = File(dir(context), "base.gguf")
+-    fun adapterFile(context: Context, lang: String) = File(dir(context), "adapter-${langCode(lang)}.gguf")
++    fun adapterFile(context: Context, locale: String) = File(dir(context), "adapter-${adapterTag(locale)}.gguf")
+     /** "el", "el-GR", "el_GR" -> "el" */
+     fun langCode(language: String) = language.split('-', '_').first().lowercase()
++    /** Region subtag, if any: "es-MX", "es_mx" -> "MX", "es-419" -> "419", "sr-Latn-RS" -> "RS", "el" -> null */
++    fun regionCode(language: String): String? = language.split('-', '_').drop(1)
++        .firstOrNull { (it.length == 2 && it.all(Char::isLetter)) || (it.length == 3 && it.all(Char::isDigit)) }?.uppercase()
++    /** Adapter file tag: "es_MX" -> "es-MX", "el-GR" -> "el-GR", "el" -> "el" (script subtags are dropped). */
++    fun adapterTag(locale: String) = langCode(locale) + (regionCode(locale)?.let { "-$it" } ?: "")
++    /** Per-language setting: the dialect ("MX") whose adapter to use when the keyboard's locale has none; "" = automatic. */
++    fun dialectKey(lang: String) = stringPreferencesKey("dictation_cleanup_dialect_${langCode(lang)}")
+     fun isSupported() = available
+     private fun File.present() = exists() && length() > 0
+     /** The merged model (imported or downloaded as "On-device model"). */
+     fun hasModel(context: Context) = modelFile(context).present()
+-    /** Languages with a per-language adapter installed next to the base. */
++    /** Adapter tags ("el", "es-MX") installed next to the base. */
+     fun adapterLanguages(context: Context): List<String> =
+         if (!baseFile(context).present()) emptyList()
+         else dir(context).listFiles()?.mapNotNull { f ->
+@@ -55,11 +66,27 @@ object LocalLlm {
+     /** Whether any cleanup can run on the device (merged model, or base + at least one adapter). */
+     fun hasAnyModel(context: Context) = hasModel(context) || adapterLanguages(context).isNotEmpty()
+ 
+-    /** Model + adapter for a dictation language: base + its adapter if installed, else the merged model, else null. */
++    /**
++     * Adapter for a dictation locale ("es-MX", "es-419", "es"), first installed of: the locale's own dialect, the
++     * dialect chosen in settings, (if none chosen) the system locale's dialect, the plain language, any other
++     * installed dialect of the language.
++     */
++    fun adapterFor(context: Context, language: String?): File? {
++        if (language.isNullOrBlank() || !baseFile(context).present()) return null
++        val lang = langCode(language)
++        val chosen = context.getSetting(dialectKey(lang), "").ifBlank { null }
++        val system = Resources.getSystem().configuration.locales[0]
++            .takeIf { it.language == lang }?.country?.ifBlank { null }
++        val tags = listOfNotNull(regionCode(language), chosen ?: system).map { "$lang-$it" } + lang
++        return tags.map { adapterFile(context, it) }.firstOrNull { it.present() }
++            ?: adapterLanguages(context).firstOrNull { langCode(it) == lang }?.let { adapterFile(context, it) }
++    }
++
++    /** Model + adapter for a dictation locale: base + its adapter if installed, else the merged model, else null. */
+     fun filesFor(context: Context, language: String?): Pair<File, File?>? {
+-        val adapter = language?.takeIf { it.isNotBlank() }?.let { adapterFile(context, it) }
++        val adapter = adapterFor(context, language)
+         return when {
+-            adapter != null && adapter.present() && baseFile(context).present() -> baseFile(context) to adapter
++            adapter != null -> baseFile(context) to adapter
+             hasModel(context) -> modelFile(context) to null
+             else -> null
+         }
+diff --git a/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt b/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
+index 5bff0420d..86e9fcd8e 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
+@@ -542,7 +542,7 @@ private fun CleanupAdapterRow(
+     val needBytes = need.sumOf { it.variants[it.defaultVariant].size }
+     // "Update" when everything still needed is already installed in an older version
+     val update = need.isNotEmpty() && need.all { if (it === base) basePresent else present }
+-    val languageName = CleanupPrompts.languageName(adapter.locale) ?: adapter.locale
++    val languageName = CleanupPrompts.displayName(adapter.locale)  // "Greek", "Spanish (Mexico)"
+     val task = ModelDownloads.tasks[slot]
+     var confirm by remember { mutableStateOf<Boolean?>(null) }
+ 
