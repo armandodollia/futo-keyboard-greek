@@ -78,6 +78,8 @@ jobs:
             echo "== $p"
             git apply --3way --whitespace=nowarn "$p"
           done
+          # on-device cleanup runtime: pinned modern llama.cpp for native/llmcleanup (see patches/0003)
+          git clone --depth 1 --branch "$(cat ../patches/llama.cpp.version)" https://github.com/ggml-org/llama.cpp native/llmcleanup/llama.cpp
           # separate app next to the official one, clearly marked as modified (FUTO Source First License 1.1)
           perl -0pi -e 's/(productFlavors \{.*?\n(\s*)stable \{\n)/$1$2    applicationIdSuffix ".greek"\n/s' build.gradle
           perl -0pi -e 's/(\n\s*stable \{.*?buildConfigField "boolean", "UPDATE_CHECKING", )"true"/$1"false"/s' build.gradle

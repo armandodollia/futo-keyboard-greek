@@ -36,6 +36,15 @@ Settings → Voice input → Dictation cleanup:
 The feature is off by default. The build declares the INTERNET permission, which it uses only to contact the server
 you configure.
 
+`patches/0003-on-device-cleanup.patch` adds **on-device dictation cleanup**:
+
+- **Separate native library:** `libllmcleanup.so` is built from a pinned modern llama.cpp (`patches/llama.cpp.version`,
+  fetched at build time) for 64-bit devices, with hidden symbols so it never clashes with FUTO's own copy.
+- **Settings:** under Dictation cleanup, *Import on-device model (.gguf)* loads a fine-tuned cleanup model, e.g. the
+  Greek/Albanian/English Qwen3-1.7B, Q4_0 (~1 GB).
+- **Runs alongside the remote server:** in the same parallel strategies (prefer remote with local backup, fastest wins,
+  local only), and fully offline.
+
 The build also:
 
 - **Installs as a separate app:** `org.futo.inputmethod.latin.greek`, named "FUTO Keyboard (Greek patch)", next to the
