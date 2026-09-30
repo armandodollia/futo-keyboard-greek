@@ -28,7 +28,7 @@ keep `NOTICE`, `ATTRIBUTION.md` and the matching licence with it.
 | [mandododo/albanian-typing-lm-futo](https://huggingface.co/mandododo/albanian-typing-lm-futo) | `sq_typing_v2_Q8_0.gguf` (and v1.1) + PyTorch checkpoints |
 | [mandododo/greek-dictionary-futo](https://huggingface.co/datasets/mandododo/greek-dictionary-futo) (dataset) | `Greek-main_el.dict` + `.combined` source |
 | [mandododo/albanian-dictionary-futo](https://huggingface.co/datasets/mandododo/albanian-dictionary-futo) (dataset) | `Albanian-main_sq.dict` + `.combined` source |
-| [mandododo/polyglot-cleanup-qwen3-1.7b](https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b) | `Cleanup-v2-q4_0.gguf` + NOTICE and licences |
+| [mandododo/polyglot-cleanup-qwen3-1.7b](https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b) | `Cleanup-v2-q4_0.gguf`, the per-language option (`base/qwen3-1.7b-q4_0.gguf` + `adapters/cleanup-{el,sq,en}-lora-f16.gguf`) + NOTICE and licences |
 
 ## Files
 
@@ -65,6 +65,16 @@ Sizes are in MiB. `SHA256SUMS` in this folder has the same checksums in `sha256s
 | `Albanian-main_sq.dict` | 1,170,549 | `3674818631bc1439044ccd99e16eff41120a129e24795d36a1b6786047b7f9f6` |
 | `Albanian-main_sq.combined` | 5,011,815 | `002c39d89719bb19841cb526191992ffc9ed844d76b747b60a322d3977a779c7` |
 | `Cleanup-v2-q4_0.gguf` | 1,054,422,816 | `3ebd17023804d8de4249a0983a8b3db4ddc49b30a780ec832e6d0d8443676369` |
+| `base/qwen3-1.7b-q4_0.gguf` (Hugging Face only) | 1,054,422,848 | `d999594c4b1e29300a6eabd08baad9caf23d2bc7829d6b37a07cab0cc96cdab9` |
+| `adapters/cleanup-el-lora-f16.gguf` (Hugging Face only) | 34,892,448 | `1588d35d0a4c36e018c154d68e391d284bec204390aedad51d22ac1efcab7ed2` |
+| `adapters/cleanup-sq-lora-f16.gguf` (Hugging Face only) | 34,892,448 | `380ec3ead09ffa52e2303b6aa8047aaf128a84f054ff250d912c74ce95a78c0e` |
+| `adapters/cleanup-en-lora-f16.gguf` (Hugging Face only) | 34,892,448 | `1c0985f134b067797f26310e7c2a1759ee31a0addf0df191dfca7bd99c54d187` |
+
+**Per-language cleanup files.** Instead of the shared `Cleanup-v2` model you can use one base (stock Qwen3-1.7B,
+Q4_0, 1.0 GB) plus a small LoRA adapter per language (33 MB each), trained on the stock base with the same data and
+prompt. Adding a language then means one small file, not a new 1 GB model. They are on
+[Hugging Face](https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b) under `base/` and `adapters/`. The base
+on its own is not trained for cleanup, so it is only used together with an adapter.
 
 Check a download with `sha256sum -c SHA256SUMS --ignore-missing` (Linux/macOS) or `certutil -hashfile <file> SHA256`
 (Windows).
@@ -73,7 +83,8 @@ Check a download with `sha256sum -c SHA256SUMS --ignore-missing` (Linux/macOS) o
 
 **The easy way:** FUTO Keyboard Polyglot downloads them for you (patch 0004). Open Settings → Languages & Models:
 each language card lists what is available for it (for Greek voice, pick small, base or tiny), and Settings → Voice
-input → Dictation cleanup has *Download on-device model*. Each file's SHA-256 is checked before it is installed. The
+input → Dictation cleanup has *Download on-device model* (the shared model) and one *Per-language models: base +
+&lt;language&gt;* row per language (patch 0005). Each file's SHA-256 is checked before it is installed. The
 rest of this section is the manual way.
 
 All of these are imported in FUTO Keyboard Polyglot (they also work in stock FUTO Keyboard, except the typing
@@ -111,6 +122,13 @@ away. Mild insults and everyday slang are not flagged.
 
 - **On the phone:** Settings → Voice input → Dictation cleanup → **Import on-device model (.gguf)**, then choose the
   local or a parallel strategy. It needs a 64-bit phone with enough free memory for a 1 GB model.
+- **Per-language, on the phone (patch 0005):** download a *Per-language models* row on the same screen. The app
+  keeps the files in its private folder as `base.gguf` + `adapter-<lang>.gguf`. For dictation in a language that has
+  an adapter it runs the base with that adapter; for other languages it uses the shared model if installed, and
+  otherwise skips on-device cleanup. Only the shared model can be imported by hand.
+- **Per-language, on your own server:**
+  `llama-server -m qwen3-1.7b-q4_0.gguf --lora cleanup-el-lora-f16.gguf --port 8080` (one adapter per server, or
+  load several with `--lora-init-without-apply` and pick one per request with the `lora` field). Same prompt format.
 - **On your own server:** serve it with llama-server, for example
   `llama-server -m Cleanup-v2-q4_0.gguf --jinja --chat-template-kwargs '{"enable_thinking":false}' --port 8080`.
   Anything that talks to it must use the prompt format the model was trained on:
@@ -155,8 +173,19 @@ this. To publish a model or a new version, edit `index.json`:
 ```
 
 - `version` (top level) is the schema version, currently `1`.
-- `kind`: `typing` (transformer `.gguf`), `voice` (whisper `.bin`), `dictionary` (`.dict`) or `cleanup` (dictation
-  cleanup `.gguf`; `locale` is `*`).
+- `kind`: `typing` (transformer `.gguf`), `voice` (whisper `.bin`), `dictionary` (`.dict`) or one of the dictation
+  cleanup kinds:
+  - `cleanup`: the shared, merged cleanup `.gguf`; `locale` is `*`. At most one.
+  - `cleanup-base`: the base model for the per-language adapters (stock Qwen3-1.7B `.gguf`); `locale` is `*`. At
+    most one. It is listed only together with the adapters, never used on its own.
+  - `cleanup-adapter`: a LoRA adapter `.gguf` for the `cleanup-base`; `locale` is the bare language code (`el`), the
+    one the app gets from the voice input language. One per language. The Dictation cleanup screen shows a
+    "Per-language models: base + &lt;Language&gt;" row for each, which downloads the base too when it is missing or
+    outdated. An adapter must be converted against the exact base in the index (same architecture and tensor
+    shapes); if you replace the base with a different model, retrain the adapters and raise their `version`.
+
+  Apps from before patch 0005 ignore `cleanup-base` and `cleanup-adapter`, so they can be added without a schema
+  version change.
 - `locale`: the language code (`el`, `sq`), or a full locale such as `pt_BR` to target one keyboard language only.
 - `version` (per model) is an integer. Raise it when you replace the file: phones that downloaded an older version
   show "Update available".
@@ -209,6 +238,21 @@ word in its top 3 for 58.2%. The data was not trained on, but its error types in
 | Output stays in the input language | 99.3% |
 | Held-out trailing self-corrections ("… five, no wait, six") | 87.8% |
 
+**Per-language adapters vs the shared model.** Held-out pairs, similarity to the target (1 − CER), bf16
+Transformers, all held-out items per language:
+
+| Language | Shared `Cleanup-v2` | Base + adapter |
+|---|---|---|
+| Greek | 86.7% | 87.0% |
+| Albanian | 86.3% | 85.6% |
+| English | 83.0% | 84.9% |
+
+The same check through llama.cpp with the shipped GGUFs (base Q4_0 + f16 adapter vs `Cleanup-v2-q4_0.gguf`, the
+app's raw prompt, greedy, 30 held-out items per language, CPU, 4 threads) gave Greek 83.5% vs 84.7%, Albanian 85.4%
+vs 83.2%, English 82.8% vs 85.3%: within the noise of 30 items. The unadapted base scored 59.2% on the Greek items,
+which is why the app never runs it alone. Applying the adapter at run time costs about 10-25% per request (prompt
+~230 vs ~290 tokens/s, generation ~85 vs ~95 tokens/s on the same CPU).
+
 ## Known limitations
 
 - **Offensive-word lists need native review.** The dictionaries' `possibly_offensive` flags come from hand-made stem
@@ -246,6 +290,8 @@ word in its top 3 for 58.2%. The data was not trained on, but its error types in
 | `Greek-main_el.dict` / `.combined` | GPL-3.0 | Includes forms from Helium314's `main_el2`, which is GPL-3.0 (from dim-geo/greekdictionary) | `.combined` is the corresponding source |
 | `Albanian-main_sq.dict` / `.combined` | MIT | Word list and frequencies counted from our corpora and our own lists | — |
 | `Cleanup-v2-q4_0.gguf` | Apache-2.0 + Gemma Terms of Use | Qwen3-1.7B is Apache-2.0; part of the Greek targets were generated by Gemma 3, which can make it a Gemma "Model Derivative" | Gemma use restrictions pass on to you; see `NOTICE`. Source messages include OpenSubtitles and Reddit text |
+| `adapters/cleanup-*-lora-f16.gguf` | Apache-2.0 + Gemma Terms of Use | Trained on the same data as `Cleanup-v2`, so the same terms apply | As for `Cleanup-v2`; see `NOTICE` |
+| `base/qwen3-1.7b-q4_0.gguf` | Apache-2.0 | Unmodified Qwen3-1.7B, converted and quantized | — |
 
 What the licences on the training text mean for model weights is not settled law. In plain terms:
 

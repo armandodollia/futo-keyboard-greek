@@ -111,6 +111,58 @@
       "url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b/resolve/main/Cleanup-v2-q4_0.gguf",
       "license": "Apache-2.0, plus the Gemma Terms of Use (use restrictions apply)",
       "info_url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b"
+    },
+    {
+      "id": "cleanup-base",
+      "kind": "cleanup-base",
+      "locale": "*",
+      "title": "Cleanup base model (Qwen3-1.7B)",
+      "description": "Stock Qwen3-1.7B, Q4_0. Shared by the per-language cleanup files; it is only used together with one of them. Needs a 64-bit phone with enough free memory for a 1 GB model.",
+      "version": 1,
+      "size": 1054422848,
+      "sha256": "d999594c4b1e29300a6eabd08baad9caf23d2bc7829d6b37a07cab0cc96cdab9",
+      "url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b/resolve/main/base/qwen3-1.7b-q4_0.gguf",
+      "license": "Apache-2.0",
+      "info_url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b"
+    },
+    {
+      "id": "cleanup-adapter-el",
+      "kind": "cleanup-adapter",
+      "locale": "el",
+      "title": "Greek cleanup adapter",
+      "description": "Small LoRA file that specialises the cleanup base for Greek dictation. Downloads the base too if it is missing.",
+      "version": 1,
+      "size": 34892448,
+      "sha256": "1588d35d0a4c36e018c154d68e391d284bec204390aedad51d22ac1efcab7ed2",
+      "url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b/resolve/main/adapters/cleanup-el-lora-f16.gguf",
+      "license": "Apache-2.0, plus the Gemma Terms of Use (use restrictions apply)",
+      "info_url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b"
+    },
+    {
+      "id": "cleanup-adapter-sq",
+      "kind": "cleanup-adapter",
+      "locale": "sq",
+      "title": "Albanian cleanup adapter",
+      "description": "Small LoRA file that specialises the cleanup base for Albanian dictation. Downloads the base too if it is missing.",
+      "version": 1,
+      "size": 34892448,
+      "sha256": "380ec3ead09ffa52e2303b6aa8047aaf128a84f054ff250d912c74ce95a78c0e",
+      "url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b/resolve/main/adapters/cleanup-sq-lora-f16.gguf",
+      "license": "Apache-2.0, plus the Gemma Terms of Use (use restrictions apply)",
+      "info_url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b"
+    },
+    {
+      "id": "cleanup-adapter-en",
+      "kind": "cleanup-adapter",
+      "locale": "en",
+      "title": "English cleanup adapter",
+      "description": "Small LoRA file that specialises the cleanup base for English dictation. Downloads the base too if it is missing.",
+      "version": 1,
+      "size": 34892448,
+      "sha256": "1c0985f134b067797f26310e7c2a1759ee31a0addf0df191dfca7bd99c54d187",
+      "url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b/resolve/main/adapters/cleanup-en-lora-f16.gguf",
+      "license": "Apache-2.0, plus the Gemma Terms of Use (use restrictions apply)",
+      "info_url": "https://huggingface.co/mandododo/polyglot-cleanup-qwen3-1.7b"
     }
   ]
 }

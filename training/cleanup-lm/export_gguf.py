@@ -3,7 +3,8 @@
 Merged model (what the app imports): convert_hf_to_gguf.py -> f16 GGUF -> llama-quantize Q4_0 (~1 GB for 1.7B).
 Q4_0 because llama.cpp repacks it at load time into its fastest ARM (dotprod/i8mm) kernels, which is what phones run.
 LoRA adapter (--adapter): convert_lora_to_gguf.py -> a small f16 GGUF for `llama-server -m base.gguf --lora x.gguf`.
-The app loads one model file and no adapters, so for the phone export the merged model instead.
+The app runs a merged model (import or download) or the stock base + a per-language adapter (download index, kind
+cleanup-adapter); adapters must be trained on the stock base (Qwen/Qwen3-1.7B).
 
 Needs a llama.cpp checkout with built tools (llama-quantize) and its Python deps:
   pip install -r <llama.cpp>/requirements/requirements-convert_hf_to_gguf.txt

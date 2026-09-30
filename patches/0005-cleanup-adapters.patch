@@ -1,0 +1,378 @@
+diff --git a/java/res/values/strings-downloads.xml b/java/res/values/strings-downloads.xml
+index 3b58c6284..438deb373 100644
+--- a/java/res/values/strings-downloads.xml
++++ b/java/res/values/strings-downloads.xml
+@@ -21,4 +21,8 @@
+     <string name="model_downloads_metered_warning" translatable="false">You are on a metered connection (e.g. mobile data). This download may count against your data plan.</string>
+     <string name="model_downloads_cleanup_download" translatable="false">Download on-device model (%1$s)</string>
+     <string name="model_downloads_cleanup_update" translatable="false">Update on-device model (%1$s)</string>
++    <string name="model_downloads_cleanup_per_language_explainer" translatable="false">Per-language models: one shared base plus a small file per language; used for dictation in that language.</string>
++    <string name="model_downloads_cleanup_per_language_row" translatable="false">Per-language models: base (%1$s) + %2$s (%3$s)</string>
++    <string name="model_downloads_cleanup_per_language_in_use" translatable="false">✓ Installed: used for dictation in %1$s</string>
++    <string name="model_downloads_cleanup_per_language_missing" translatable="false">Not installed (%1$s to download)</string>
+ </resources>
+diff --git a/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt b/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt
+index b6b9583a7..e9ee5b09a 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt
+@@ -29,8 +29,14 @@ import org.futo.inputmethod.latin.uix.settings.useDataStore
+ 
+ private fun localStatusText(context: android.content.Context): String = when {
+     !LocalLlm.isSupported() -> "The on-device runtime isn't available on this device (64-bit only)."
+-    !LocalLlm.hasModel(context) -> "No on-device model yet. Import the cleanup .gguf to run cleanup on the phone (parallel with the remote server, or alone)."
+-    else -> "On-device model installed (${LocalLlm.modelFile(context).length() / 1_000_000} MB). It loads on first use."
++    !LocalLlm.hasAnyModel(context) -> "No on-device model yet. Import the cleanup .gguf to run cleanup on the phone (parallel with the remote server, or alone)."
++    else -> listOfNotNull(
++        if (LocalLlm.hasModel(context)) "On-device model installed (${LocalLlm.modelFile(context).length() / 1_000_000} MB)." else null,
++        LocalLlm.adapterLanguages(context).takeIf { it.isNotEmpty() }?.let { langs ->
++            "Per-language models installed: " + langs.joinToString { CleanupPrompts.languageName(it) ?: it } + "."
++        },
++        "It loads on first use."
++    ).joinToString(" ")
+ }
+ 
+ private const val TEST_SAMPLE =
+@@ -92,10 +98,11 @@ fun DictationCleanupScreen(navController: NavHostController = rememberNavControl
+         Button(onClick = { importer.launch(arrayOf("*/*")) }, enabled = LocalLlm.isSupported(),
+             modifier = Modifier.fillMaxWidth().padding(16.dp, 4.dp)) { Text("Import on-device model (.gguf)") }
+         org.futo.inputmethod.latin.uix.downloads.CleanupModelDownload(LocalLlm.isSupported()) { localStatus.value = localStatusText(context) }
+-        if (LocalLlm.hasModel(context)) {
++        org.futo.inputmethod.latin.uix.downloads.CleanupAdapterDownloads(LocalLlm.isSupported()) { localStatus.value = localStatusText(context) }
++        if (LocalLlm.hasAnyModel(context)) {
+             Button(onClick = {
+                 scope.launch { LocalLlm.remove(context); LocalCleanupModel.ensureRegistered(context); localStatus.value = localStatusText(context) }
+-            }, modifier = Modifier.fillMaxWidth().padding(16.dp, 4.dp)) { Text("Remove on-device model") }
++            }, modifier = Modifier.fillMaxWidth().padding(16.dp, 4.dp)) { Text("Remove on-device models") }
+         }
+ 
+         ScreenTitle("Test")
+diff --git a/java/src/org/futo/inputmethod/latin/uix/cleanup/LocalLlm.kt b/java/src/org/futo/inputmethod/latin/uix/cleanup/LocalLlm.kt
+index a8d523e6f..514dae354 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/cleanup/LocalLlm.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/cleanup/LocalLlm.kt
+@@ -13,6 +13,8 @@ import java.util.concurrent.Executors
+ /**
+  * On-device dictation cleanup: a fine-tuned small model (GGUF, e.g. Qwen3-1.7B Q4_0) run by libllmcleanup.so
+  * (modern llama.cpp, CPU). The model file lives in filesDir/cleanup-models/cleanup.gguf, imported from settings.
++ * Per-language option: base.gguf (stock Qwen3-1.7B) + adapter-<lang>.gguf (LoRA) in the same folder. For a language
++ * with an adapter the base + adapter is used; otherwise the merged cleanup.gguf. The base is never used unadapted.
+  */
+ object LocalLlm {
+     private const val TAG = "LocalLlm"
+@@ -24,6 +26,7 @@ object LocalLlm {
+ 
+     @JvmStatic private external fun nativeLoad(path: String, threads: Int): Long
+     @JvmStatic private external fun nativeGenerate(handle: Long, prompt: String, maxTokens: Int): String?
++    @JvmStatic private external fun nativeSetAdapter(handle: Long, path: String?): Boolean
+     @JvmStatic private external fun nativeFree(handle: Long)
+ 
+     /** All native calls run on one background thread, so the model is never used concurrently. */
+@@ -33,9 +36,43 @@ object LocalLlm {
+     private var handle = 0L
+     private var loadedPath: String? = null
+ 
+-    fun modelFile(context: Context) = File(File(context.filesDir, "cleanup-models"), "cleanup.gguf")
++    private fun dir(context: Context) = File(context.filesDir, "cleanup-models")
++    fun modelFile(context: Context) = File(dir(context), "cleanup.gguf")
++    fun baseFile(context: Context) = File(dir(context), "base.gguf")
++    fun adapterFile(context: Context, lang: String) = File(dir(context), "adapter-${langCode(lang)}.gguf")
++    /** "el", "el-GR", "el_GR" -> "el" */
++    fun langCode(language: String) = language.split('-', '_').first().lowercase()
+     fun isSupported() = available
+-    fun hasModel(context: Context) = modelFile(context).let { it.exists() && it.length() > 0 }
++    private fun File.present() = exists() && length() > 0
++    /** The merged model (imported or downloaded as "On-device model"). */
++    fun hasModel(context: Context) = modelFile(context).present()
++    /** Languages with a per-language adapter installed next to the base. */
++    fun adapterLanguages(context: Context): List<String> =
++        if (!baseFile(context).present()) emptyList()
++        else dir(context).listFiles()?.mapNotNull { f ->
++            f.name.removePrefix("adapter-").removeSuffix(".gguf").takeIf { f.name.startsWith("adapter-") && f.name.endsWith(".gguf") && f.present() }
++        }?.sorted() ?: emptyList()
++    /** Whether any cleanup can run on the device (merged model, or base + at least one adapter). */
++    fun hasAnyModel(context: Context) = hasModel(context) || adapterLanguages(context).isNotEmpty()
++
++    /** Model + adapter for a dictation language: base + its adapter if installed, else the merged model, else null. */
++    fun filesFor(context: Context, language: String?): Pair<File, File?>? {
++        val adapter = language?.takeIf { it.isNotBlank() }?.let { adapterFile(context, it) }
++        return when {
++            adapter != null && adapter.present() && baseFile(context).present() -> baseFile(context) to adapter
++            hasModel(context) -> modelFile(context) to null
++            else -> null
++        }
++    }
++
++    /** Moves a downloaded, verified file into place (the loaded model is released first). */
++    suspend fun installFile(file: File, dst: File) {
++        release()
++        withContext(Dispatchers.IO) {
++            dst.parentFile?.mkdirs()
++            if (!file.renameTo(dst)) { file.copyTo(dst, overwrite = true) }
++        }
++    }
+ 
+     suspend fun import(context: Context, uri: Uri): Result<Long> = withContext(Dispatchers.IO) {
+         runCatching {
+@@ -52,17 +89,20 @@ object LocalLlm {
+         }
+     }
+ 
+-    suspend fun remove(context: Context) { release(); withContext(Dispatchers.IO) { modelFile(context).delete() } }
++    /** Removes every on-device cleanup model: the merged model and the per-language base + adapters. */
++    suspend fun remove(context: Context) {
++        release()
++        withContext(Dispatchers.IO) { dir(context).listFiles()?.filter { it.name.endsWith(".gguf") }?.forEach { it.delete() } }
++    }
+ 
+     suspend fun release() = withContext(thread) {
+         if (handle != 0L) { nativeFree(handle); handle = 0L; loadedPath = null }
+     }
+ 
+     /** Loads the model on first use (about a second), then keeps it resident while the keyboard process lives. */
+-    suspend fun generate(context: Context, prompt: String, maxTokens: Int): String = withContext(thread) {
++    suspend fun generate(context: Context, prompt: String, maxTokens: Int, language: String?): String = withContext(thread) {
+         check(available) { "on-device runtime not available" }
+-        val f = modelFile(context)
+-        check(f.exists()) { "no on-device model imported" }
++        val (f, adapter) = filesFor(context, language) ?: error("no on-device model for ${language ?: "this language"}")
+         if (handle == 0L || loadedPath != f.path) {
+             if (handle != 0L) nativeFree(handle)
+             val threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
+@@ -70,6 +110,7 @@ object LocalLlm {
+             check(handle != 0L) { "could not load ${f.name}" }
+             loadedPath = f.path
+         }
++        check(nativeSetAdapter(handle, adapter?.path)) { "could not load ${adapter?.name}" }
+         nativeGenerate(handle, prompt, maxTokens) ?: error("generation failed")
+     }
+ }
+@@ -88,13 +129,13 @@ class LocalCleanupModel(private val context: Context) : CleanupBackend {
+     override suspend fun clean(text: String, mode: String, language: String?): String {
+         val prompt = "<|im_start|>system\n${systemPrompt(mode, language)}<|im_end|>\n" +
+             "<|im_start|>user\n$text<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+-        return LocalLlm.generate(context, prompt, (text.length * 0.8).toInt() + 40).trim()
++        return LocalLlm.generate(context, prompt, (text.length * 0.8).toInt() + 40, language).trim()
+     }
+ 
+     companion object {
+         /** Registers the on-device backend when a model is present (called before each cleanup). */
+         fun ensureRegistered(context: Context) {
+-            val ok = LocalLlm.isSupported() && LocalLlm.hasModel(context)
++            val ok = LocalLlm.isSupported() && LocalLlm.hasAnyModel(context)
+             if (ok && LocalCleanupBackend.backend == null) LocalCleanupBackend.backend = LocalCleanupModel(context.applicationContext)
+             if (!ok) LocalCleanupBackend.backend = null
+         }
+diff --git a/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt b/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
+index 8c571ba22..5bff0420d 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
+@@ -55,6 +55,7 @@ import org.futo.inputmethod.engine.GlobalIMEMessage
+ import org.futo.inputmethod.engine.IMEMessage
+ import org.futo.inputmethod.latin.R
+ import org.futo.inputmethod.latin.uix.FileKind
++import org.futo.inputmethod.latin.uix.cleanup.CleanupPrompts
+ import org.futo.inputmethod.latin.uix.cleanup.LocalCleanupModel
+ import org.futo.inputmethod.latin.uix.cleanup.LocalLlm
+ import org.futo.inputmethod.latin.uix.determineFileKind
+@@ -106,7 +107,10 @@ fun formatModelSize(bytes: Long): String = when {
+ 
+ object ModelDownloads {
+     private const val TAG = "ModelDownloads"
+-    const val INDEX_URL = "https://raw.githubusercontent.com/armandodollia/futo-keyboard-polyglot/main/models/index.json"
++    const val KIND_CLEANUP = "cleanup"
++    const val KIND_CLEANUP_BASE = "cleanup-base"
++    const val KIND_CLEANUP_ADAPTER = "cleanup-adapter"
++    const val INDEX_URL ="https://raw.githubusercontent.com/armandodollia/futo-keyboard-polyglot/main/models/index.json"
+ 
+     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+ 
+@@ -124,7 +128,11 @@ object ModelDownloads {
+     private val jobs = HashMap<String, Job>()
+     private val conns = java.util.concurrent.ConcurrentHashMap<String, HttpURLConnection>()
+ 
+-    fun slot(entry: ModelEntry, localeKey: String) = if (entry.fileKind == null) entry.kind else "${entry.kind}_$localeKey"
++    fun slot(entry: ModelEntry, localeKey: String) = when {
++        entry.kind == KIND_CLEANUP_ADAPTER -> "${entry.kind}_${entry.locale}"
++        entry.fileKind == null -> entry.kind
++        else -> "${entry.kind}_$localeKey"
++    }
+     fun installedKey(slot: String) = stringPreferencesKey("model_download_$slot")
+ 
+     /** File name used by ImportResourceActivity.applySetting for this kind and language. */
+@@ -285,11 +293,17 @@ object ModelDownloads {
+         val detected = file.inputStream().use { determineFileKind(it) }
+         val kind = entry.fileKind
+         if (kind == null) {
+-            // Cleanup model: same destination and checks as LocalLlm.import
++            // Cleanup models: GGUF files in LocalLlm's folder (merged model, or per-language base + adapters)
+             check(detected.kind == FileKind.Transformer) { "not a GGUF model file" }
+-            LocalLlm.release()
+-            val dst = LocalLlm.modelFile(context).apply { parentFile?.mkdirs() }
+-            if (!file.renameTo(dst)) LocalLlm.import(context, Uri.fromFile(file)).getOrThrow()
++            when (entry.kind) {
++                KIND_CLEANUP_BASE -> LocalLlm.installFile(file, LocalLlm.baseFile(context))
++                KIND_CLEANUP_ADAPTER -> LocalLlm.installFile(file, LocalLlm.adapterFile(context, entry.locale))
++                else -> {
++                    LocalLlm.release()
++                    val dst = LocalLlm.modelFile(context).apply { parentFile?.mkdirs() }
++                    if (!file.renameTo(dst)) LocalLlm.import(context, Uri.fromFile(file)).getOrThrow()
++                }
++            }
+             LocalCleanupModel.ensureRegistered(context)
+             return
+         }
+@@ -457,7 +471,7 @@ fun LanguageModelDownloads(localeKey: String, language: String, languageName: St
+ fun CleanupModelDownload(enabled: Boolean, onInstalled: () -> Unit) {
+     val context = LocalContext.current
+     LaunchedEffect(Unit) { ModelDownloads.refreshIndex(context) }
+-    val entry = ModelDownloads.entries.firstOrNull { it.kind == "cleanup" } ?: return
++    val entry = ModelDownloads.entries.firstOrNull { it.kind == ModelDownloads.KIND_CLEANUP } ?: return
+     val variant = entry.variants[entry.defaultVariant]
+     val slot = ModelDownloads.slot(entry, "")
+     val installedValue = useDataStore(ModelDownloads.installedKey(slot), "").value
+@@ -484,3 +498,82 @@ fun CleanupModelDownload(enabled: Boolean, onInstalled: () -> Unit) {
+     }
+     task?.let { DownloadProgress(slot, it) }
+ }
++
++private fun installedVersion(value: String, entry: ModelEntry): Int? =
++    value.split("@").takeIf { it.size == 3 && it[0] == entry.id }?.get(1)?.toIntOrNull()
++
++/**
++ * Per-language cleanup models: one shared base (kind "cleanup-base") plus a small LoRA adapter per language
++ * (kind "cleanup-adapter"). Each row downloads whichever of the two is missing or outdated.
++ */
++@Composable
++fun CleanupAdapterDownloads(enabled: Boolean, onInstalled: () -> Unit) {
++    val context = LocalContext.current
++    LaunchedEffect(Unit) { ModelDownloads.refreshIndex(context) }
++    val base = ModelDownloads.entries.firstOrNull { it.kind == ModelDownloads.KIND_CLEANUP_BASE } ?: return
++    val adapters = ModelDownloads.entries.filter { it.kind == ModelDownloads.KIND_CLEANUP_ADAPTER }
++    if (adapters.isEmpty()) return
++    val baseSlot = ModelDownloads.slot(base, "")
++    val baseValue = useDataStore(ModelDownloads.installedKey(baseSlot), "").value
++    LaunchedEffect(baseValue) { onInstalled() }
++    val basePresent = LocalLlm.baseFile(context).exists()
++    val baseCurrent = basePresent && (installedVersion(baseValue, base) ?: 0) >= base.version
++
++    Text(
++        stringResource(R.string.model_downloads_cleanup_per_language_explainer),
++        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
++        style = Typography.Small
++    )
++    adapters.forEach { CleanupAdapterRow(base, basePresent, baseCurrent, it, enabled, onInstalled) }
++    ModelDownloads.tasks[baseSlot]?.let { DownloadProgress(baseSlot, it) }
++}
++
++@Composable
++private fun CleanupAdapterRow(
++    base: ModelEntry, basePresent: Boolean, baseCurrent: Boolean, adapter: ModelEntry, enabled: Boolean, onInstalled: () -> Unit
++) {
++    val context = LocalContext.current
++    val slot = ModelDownloads.slot(adapter, "")
++    val value = useDataStore(ModelDownloads.installedKey(slot), "").value
++    LaunchedEffect(value) { onInstalled() }
++    val present = LocalLlm.adapterFile(context, adapter.locale).exists()
++    val adapterCurrent = present && (installedVersion(value, adapter) ?: 0) >= adapter.version
++    val need = listOfNotNull(base.takeIf { !baseCurrent }, adapter.takeIf { !adapterCurrent })
++    val needBytes = need.sumOf { it.variants[it.defaultVariant].size }
++    // "Update" when everything still needed is already installed in an older version
++    val update = need.isNotEmpty() && need.all { if (it === base) basePresent else present }
++    val languageName = CleanupPrompts.languageName(adapter.locale) ?: adapter.locale
++    val task = ModelDownloads.tasks[slot]
++    var confirm by remember { mutableStateOf<Boolean?>(null) }
++
++    confirm?.let { metered ->
++        ConfirmDownloadDialog(adapter, ModelVariant("", needBytes, "", ""), metered,
++            onConfirm = { confirm = null; need.forEach { ModelDownloads.start(context, it, it.variants[it.defaultVariant], "") } },
++            onDismiss = { confirm = null })
++    }
++    Row(Modifier.padding(start = 16.dp, end = 6.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
++        Column(Modifier.weight(1f)) {
++            Text(
++                stringResource(R.string.model_downloads_cleanup_per_language_row,
++                    formatModelSize(base.variants[base.defaultVariant].size), languageName,
++                    formatModelSize(adapter.variants[adapter.defaultVariant].size)),
++                style = Typography.Body.RegularMl
++            )
++            Text(
++                when {
++                    need.isEmpty() -> stringResource(R.string.model_downloads_cleanup_per_language_in_use, languageName)
++                    update -> stringResource(R.string.model_downloads_update_available)
++                    else -> stringResource(R.string.model_downloads_cleanup_per_language_missing, formatModelSize(needBytes))
++                },
++                style = Typography.Small,
++                color = if (need.isEmpty()) MaterialTheme.colorScheme.primary else Color.Unspecified
++            )
++        }
++        if (need.isNotEmpty() && (task == null || task.error != null)) {
++            TextButton(onClick = { confirm = ModelDownloads.isMetered(context) }, enabled = enabled) {
++                Text(stringResource(if (update) R.string.model_downloads_update else R.string.model_downloads_download))
++            }
++        }
++    }
++    task?.let { DownloadProgress(slot, it) }
++}
+diff --git a/native/llmcleanup/llmcleanup_jni.cpp b/native/llmcleanup/llmcleanup_jni.cpp
+index 106158d70..985cab773 100644
+--- a/native/llmcleanup/llmcleanup_jni.cpp
++++ b/native/llmcleanup/llmcleanup_jni.cpp
+@@ -3,10 +3,13 @@
+ // API (org.futo.inputmethod.latin.uix.cleanup.LocalLlm):
+ //   nativeLoad(path, threads) -> handle (0 on failure)
+ //   nativeGenerate(handle, prompt, maxTokens) -> text (greedy, stops at end-of-generation), or null on failure
++//   nativeSetAdapter(handle, path) -> true if the LoRA adapter at path (none for null/empty) is now active.
++//     Adapters are loaded once per path and freed with the model; switching clears the KV memory.
+ //   nativeFree(handle)
+ #include <jni.h>
+ #include <android/log.h>
+ 
++#include <map>
+ #include <mutex>
+ #include <string>
+ #include <vector>
+@@ -22,6 +25,8 @@ namespace {
+ struct Session {
+     llama_model * model = nullptr;
+     llama_context * ctx = nullptr;
++    std::map<std::string, llama_adapter_lora *> adapters;  // by path; freed with the model
++    std::string active;                                     // path of the active adapter, empty = none
+     std::mutex lock;
+ };
+ 
+@@ -112,6 +117,35 @@ Java_org_futo_inputmethod_latin_uix_cleanup_LocalLlm_nativeGenerate(JNIEnv * env
+     return to_jstring(env, out);
+ }
+ 
++extern "C" JNIEXPORT jboolean JNICALL
++Java_org_futo_inputmethod_latin_uix_cleanup_LocalLlm_nativeSetAdapter(JNIEnv * env, jclass, jlong handle, jstring jpath) {
++    auto * s = reinterpret_cast<Session *>(handle);
++    if (!s) return JNI_FALSE;
++    std::lock_guard<std::mutex> guard(s->lock);
++    std::string path = jstr(env, jpath);
++    if (path == s->active) return JNI_TRUE;
++    llama_adapter_lora * adapter = nullptr;
++    if (!path.empty()) {
++        auto it = s->adapters.find(path);
++        if (it != s->adapters.end()) {
++            adapter = it->second;
++        } else {
++            adapter = llama_adapter_lora_init(s->model, path.c_str());
++            if (!adapter) { LOGE("failed to load adapter %s", path.c_str()); return JNI_FALSE; }
++            s->adapters[path] = adapter;
++            LOGI("loaded adapter %s", path.c_str());
++        }
++    }
++    float scale = 1.0f;
++    if (llama_set_adapters_lora(s->ctx, adapter ? &adapter : nullptr, adapter ? 1 : 0, adapter ? &scale : nullptr) != 0) {
++        LOGE("failed to set adapter %s", path.c_str());
++        return JNI_FALSE;
++    }
++    llama_memory_clear(llama_get_memory(s->ctx), true);
++    s->active = path;
++    return JNI_TRUE;
++}
++
+ extern "C" JNIEXPORT void JNICALL
+ Java_org_futo_inputmethod_latin_uix_cleanup_LocalLlm_nativeFree(JNIEnv *, jclass, jlong handle) {
+     auto * s = reinterpret_cast<Session *>(handle);

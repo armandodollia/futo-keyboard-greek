@@ -102,8 +102,8 @@ pip install -r requirements.txt
    ```
    Read some rambler rewrites. If the teacher censors, translates or chatters, pick another teacher.
 4. **Add correction pairs:** `python augment_corrections.py --work work`
-5. **Train.** Include the existing languages' pairs in `work/` to get one shared model. That is what the app ships;
-   it can hold only one model file.
+5. **Train.** Include the existing languages' pairs in `work/` to get one shared model, which is what the app's
+   *Download on-device model* installs. Alternatively train a per-language adapter (see "Per-language adapters" below).
    ```sh
    python train_cleanup.py --work work --out work/out/cleanup --dry-run   # checks prompts, no GPU needed
    python train_cleanup.py --work work --out work/out/cleanup
@@ -170,17 +170,48 @@ correction test generator was fixed (see the `augment_corrections.py` docstring)
   2. Open Settings → Voice input → Dictation cleanup → **Import on-device model (.gguf)**, then pick the local or
      parallel strategy.
   
-  The app loads one model and no LoRA adapters, so import a **merged** model.
+  Import takes a **merged** model. Per-language adapters are installed through the download index instead (see
+  below).
 - **Remotely:** run `llama-server -m cleanup-q4_0.gguf --host 0.0.0.0 --port 8080` (or the f16 file, on a PC GPU) and
   enter its URL as the remote server under Dictation cleanup. Keep it on a trusted network or behind a VPN, because the
   API key is optional.
-- **Per-language adapters:** `train_cleanup.py --langs pt --rank 16` trains a specialist. It writes
-  `<out>-adapter`, which you convert with
-  `export_gguf.py --adapter work/out/cleanup-pt-adapter --base Qwen/Qwen3-1.7B --out cleanup-pt-lora.gguf`. Serve it
-  with `llama-server -m qwen3-1.7b-f16.gguf --lora cleanup-pt-lora.gguf`. If your llama.cpp's `convert_lora_to_gguf.py`
-  lacks `--base-model-id`, download the base model and pass its folder as `--base`. For the phone, export the merged
-  `<out>` folder instead. Compare a specialist with the shared model:
-  `eval_cleanup.py shared=work/out/cleanup pt=work/out/cleanup-pt-adapter`.
+- **Per-language adapters:** see the next section.
+
+## Per-language adapters (base + one small file per language)
+
+The app can also run one shared base with a LoRA adapter per language (patch 0005): it loads the adapter for the
+dictation language. The published adapters (el, sq, en: rank 16, alpha 32, all linear layers, 2 epochs, same data and
+prompt as the shared model) are trained on the **stock `Qwen/Qwen3-1.7B`**, not on the shared cleanup model, and the
+published base is stock Qwen3-1.7B in Q4_0. They match the shared model within noise (see `models/README.md`).
+Adding a language this way needs no retraining of the others and ships a 33 MB file instead of a new 1 GB model.
+
+1. Steps 1-4 above for the new language (config, sources, pairs, corrections).
+2. **Train on this language only, from the stock base:**
+   ```sh
+   python train_cleanup.py --work work --lang pt --rank 16 --out work/out/cleanup-pt
+   ```
+   Keep the default `--base Qwen/Qwen3-1.7B`: an adapter only works on the exact base it was trained on. This writes
+   the merged model to `work/out/cleanup-pt` and the adapter to `work/out/cleanup-pt-adapter`.
+3. **Evaluate** against the shared model: `python eval_cleanup.py shared=work/out/cleanup pt=work/out/cleanup-pt-adapter`.
+4. **Convert the adapter** to an f16 GGUF (llama.cpp's `convert_lora_to_gguf.py`, same llama.cpp version as the app,
+   see `patches/llama.cpp.version`):
+   ```sh
+   python export_gguf.py --llama-cpp ../llama.cpp --adapter work/out/cleanup-pt-adapter --base Qwen/Qwen3-1.7B \
+       --out cleanup-pt-lora-f16.gguf
+   # or directly:
+   python ../llama.cpp/convert_lora_to_gguf.py work/out/cleanup-pt-adapter --base <Qwen3-1.7B folder> \
+       --outtype f16 --outfile cleanup-pt-lora-f16.gguf
+   ```
+   If your `convert_lora_to_gguf.py` lacks `--base-model-id`, download the base model and pass its folder as `--base`.
+5. **Check it in llama.cpp** with the published base:
+   `llama-server -m qwen3-1.7b-q4_0.gguf --lora cleanup-pt-lora-f16.gguf --port 8099`, then
+   `python q4_check.py --langs pt`.
+6. **Publish:** add a `cleanup-adapter` entry with `"locale": "pt"` to `models/index.json` (see the index section in
+   `models/README.md`). The app shows a "Per-language models: base + Portuguese" row for it.
+
+The base file itself is stock Qwen3-1.7B: `convert_hf_to_gguf.py` → f16 → `llama-quantize … Q4_0`. The Hugging Face
+checkpoint stores the tied `lm_head.weight` explicitly; drop it before converting (it is identical to
+`embed_tokens`), or the GGUF carries a second 622 MB (f16) output matrix.
 
 ## Files
 
