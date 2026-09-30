@@ -1,0 +1,558 @@
+diff --git a/java/res/values/strings-downloads.xml b/java/res/values/strings-downloads.xml
+new file mode 100644
+index 000000000..182e199d4
+--- /dev/null
++++ b/java/res/values/strings-downloads.xml
+@@ -0,0 +1,20 @@
++<?xml version="1.0" encoding="utf-8"?>
++<!-- Strings for model downloads (FUTO Keyboard Polyglot) -->
++<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
++    <string name="model_downloads_available_for" translatable="false">Available for %1$s</string>
++    <string name="model_downloads_download" translatable="false">Download</string>
++    <string name="model_downloads_update" translatable="false">Update</string>
++    <string name="model_downloads_update_available" translatable="false">Update available</string>
++    <string name="model_downloads_installed" translatable="false">Installed</string>
++    <string name="model_downloads_cancel" translatable="false">Cancel</string>
++    <string name="model_downloads_progress" translatable="false">%1$s of %2$s</string>
++    <string name="model_downloads_installing" translatable="false">Verified, installing…</string>
++    <string name="model_downloads_failed" translatable="false">Download failed: %1$s</string>
++    <string name="model_downloads_confirm_title" translatable="false">Download %1$s?</string>
++    <string name="model_downloads_size" translatable="false">Size: %1$s</string>
++    <string name="model_downloads_license" translatable="false">Licence: %1$s</string>
++    <string name="model_downloads_more_info" translatable="false">More info and licence</string>
++    <string name="model_downloads_metered_warning" translatable="false">You are on a metered connection (e.g. mobile data). This download may count against your data plan.</string>
++    <string name="model_downloads_cleanup_download" translatable="false">Download on-device model (%1$s)</string>
++    <string name="model_downloads_cleanup_update" translatable="false">Update on-device model (%1$s)</string>
++</resources>
+diff --git a/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt b/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt
+index e6f6dc4dd..b6b9583a7 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/cleanup/DictationCleanupScreen.kt
+@@ -91,6 +91,7 @@ fun DictationCleanupScreen(navController: NavHostController = rememberNavControl
+         Text(localStatus.value, modifier = Modifier.padding(16.dp, 4.dp), style = MaterialTheme.typography.bodyMedium)
+         Button(onClick = { importer.launch(arrayOf("*/*")) }, enabled = LocalLlm.isSupported(),
+             modifier = Modifier.fillMaxWidth().padding(16.dp, 4.dp)) { Text("Import on-device model (.gguf)") }
++        org.futo.inputmethod.latin.uix.downloads.CleanupModelDownload(LocalLlm.isSupported()) { localStatus.value = localStatusText(context) }
+         if (LocalLlm.hasModel(context)) {
+             Button(onClick = {
+                 scope.launch { LocalLlm.remove(context); LocalCleanupModel.ensureRegistered(context); localStatus.value = localStatusText(context) }
+diff --git a/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt b/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
+new file mode 100644
+index 000000000..f03959db1
+--- /dev/null
++++ b/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
+@@ -0,0 +1,469 @@
++package org.futo.inputmethod.latin.uix.downloads
++
++import android.content.Context
++import android.net.ConnectivityManager
++import android.net.Uri
++import android.util.Log
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.layout.width
++import androidx.compose.material3.AlertDialog
++import androidx.compose.material3.Button
++import androidx.compose.material3.Icon
++import androidx.compose.material3.LinearProgressIndicator
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.RadioButton
++import androidx.compose.material3.Text
++import androidx.compose.material3.TextButton
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateMapOf
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.saveable.rememberSaveable
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.platform.LocalResources
++import androidx.compose.ui.res.painterResource
++import androidx.compose.ui.res.stringResource
++import androidx.compose.ui.unit.dp
++import androidx.datastore.preferences.core.stringPreferencesKey
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.currentCoroutineContext
++import kotlinx.coroutines.ensureActive
++import kotlinx.coroutines.isActive
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.runBlocking
++import org.futo.inputmethod.engine.GlobalIMEMessage
++import org.futo.inputmethod.engine.IMEMessage
++import org.futo.inputmethod.latin.R
++import org.futo.inputmethod.latin.uix.FileKind
++import org.futo.inputmethod.latin.uix.cleanup.LocalCleanupModel
++import org.futo.inputmethod.latin.uix.cleanup.LocalLlm
++import org.futo.inputmethod.latin.uix.determineFileKind
++import org.futo.inputmethod.latin.uix.extension
++import org.futo.inputmethod.latin.uix.getSetting
++import org.futo.inputmethod.latin.uix.icon
++import org.futo.inputmethod.latin.uix.kindTitle
++import org.futo.inputmethod.latin.uix.namePreferenceKeyFor
++import org.futo.inputmethod.latin.uix.preferenceKeyFor
++import org.futo.inputmethod.latin.uix.setSetting
++import org.futo.inputmethod.latin.uix.settings.useDataStore
++import org.futo.inputmethod.latin.uix.theme.Typography
++import org.futo.inputmethod.latin.xlm.ModelPaths
++import org.futo.inputmethod.updates.openURI
++import org.json.JSONObject
++import java.io.File
++import java.net.HttpURLConnection
++import java.net.URL
++import java.security.MessageDigest
++
++/*
++ * Model downloads: a manifest (models/index.json in the Polyglot repo) lists ready-made models per language.
++ * The user taps Download, the file is streamed to the cache with its SHA-256 checked, then installed exactly
++ * like a manual import (ImportResourceActivity.applySetting) or the cleanup model import. Nothing is fetched
++ * unless a download screen is opened; nothing is downloaded without a tap.
++ */
++
++class ModelVariant(val name: String, val size: Long, val sha256: String, val url: String)
++
++class ModelEntry(
++    val id: String, val kind: String, val locale: String, val title: String, val description: String,
++    val version: Int, val license: String, val infoUrl: String, val variants: List<ModelVariant>, val defaultVariant: Int
++) {
++    val fileKind: FileKind? get() = when (kind) {
++        "typing" -> FileKind.Transformer
++        "voice" -> FileKind.VoiceInput
++        "dictionary" -> FileKind.Dictionary
++        else -> null
++    }
++}
++
++data class DownloadTask(val entryId: String, val bytes: Long, val total: Long, val installing: Boolean = false, val error: String? = null)
++
++fun formatModelSize(bytes: Long): String = when {
++    bytes >= 1000L shl 20 -> "%.1f GB".format(bytes / 1073741824.0)
++    bytes >= 10L shl 20 -> "${bytes shr 20} MB"
++    else -> "%.1f MB".format(bytes / 1048576.0)
++}
++
++object ModelDownloads {
++    private const val TAG = "ModelDownloads"
++    const val INDEX_URL = "https://raw.githubusercontent.com/armandodollia/futo-keyboard-polyglot/main/models/index.json"
++
++    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
++
++    var entries by mutableStateOf<List<ModelEntry>>(emptyList())
++        private set
++    private var indexJob: Job? = null
++    private var indexFetchedAt = 0L
++
++    /** Download state per slot (kind + language), kept here so it survives rotation and leaving the screen. */
++    val tasks = mutableStateMapOf<String, DownloadTask>()
++    private val jobs = HashMap<String, Job>()
++    private val conns = java.util.concurrent.ConcurrentHashMap<String, HttpURLConnection>()
++
++    fun slot(entry: ModelEntry, localeKey: String) = if (entry.fileKind == null) entry.kind else "${entry.kind}_$localeKey"
++    fun installedKey(slot: String) = stringPreferencesKey("model_download_$slot")
++
++    /** File name used by ImportResourceActivity.applySetting for this kind and language. */
++    fun outputFileName(kind: FileKind, localeKey: String) =
++        "${kind.name.lowercase()}_${localeKey.replace("#", "H")}${kind.extension()}"
++
++    /** Whether the language still uses the file a download installed (it may since have been removed or replaced). */
++    fun isInUse(context: Context, kind: FileKind, localeKey: String): Boolean {
++        val fileName = outputFileName(kind, localeKey)
++        return if (kind == FileKind.Transformer) {
++            runBlocking { ModelPaths.getModelOptions(context) }[localeKey.split("_").first()]?.path?.name == fileName
++        } else {
++            context.getSetting(kind.preferenceKeyFor(localeKey), "") == fileName &&
++                File(context.getExternalFilesDir(null), fileName).exists()
++        }
++    }
++
++    /** Loads the cached manifest, then fetches the current one (at most once a minute). */
++    fun refreshIndex(context: Context) {
++        val app = context.applicationContext
++        if (indexJob?.isActive == true || System.currentTimeMillis() - indexFetchedAt < 60_000) return
++        indexFetchedAt = System.currentTimeMillis()
++        indexJob = scope.launch {
++            val cache = File(app.filesDir, "model-index.json")
++            if (entries.isEmpty() && cache.exists()) runCatching { entries = parseIndex(cache.readText()) }
++            try {
++                val conn = open(INDEX_URL)
++                val text = try { conn.inputStream.bufferedReader().use { it.readText() } } finally { conn.disconnect() }
++                entries = parseIndex(text)
++                File(app.filesDir, "model-index.json.tmp").apply { writeText(text); renameTo(cache) }
++            } catch (e: Exception) {
++                Log.w(TAG, "could not fetch the model list: ${e.message}")
++            }
++        }
++    }
++
++    private fun parseIndex(text: String): List<ModelEntry> {
++        val root = JSONObject(text)
++        require(root.optInt("version") == 1) { "unsupported index version" }
++        val models = root.getJSONArray("models")
++        return (0 until models.length()).mapNotNull { i ->
++            runCatching {
++                val o = models.getJSONObject(i)
++                fun variant(v: JSONObject, name: String) =
++                    ModelVariant(name, v.getLong("size"), v.getString("sha256"), v.getString("url"))
++                val top = variant(o, "")
++                val variants = o.optJSONArray("variants")?.let { a ->
++                    (0 until a.length()).map { a.getJSONObject(it).let { v -> variant(v, v.getString("name")) } }
++                }?.takeIf { it.isNotEmpty() } ?: listOf(top)
++                require(variants.all { it.url.startsWith("https://") })
++                ModelEntry(
++                    o.getString("id"), o.getString("kind"), o.getString("locale"), o.getString("title"),
++                    o.optString("description"), o.optInt("version", 1), o.optString("license"),
++                    o.optString("info_url"), variants, variants.indexOfFirst { it.url == top.url }.coerceAtLeast(0)
++                )
++            }.getOrNull()
++        }
++    }
++
++    /** Opens an https URL, following redirects by hand (Hugging Face resolve URLs redirect to a CDN). */
++    private fun open(url: String): HttpURLConnection {
++        var u = URL(url)
++        repeat(8) {
++            require(u.protocol == "https") { "refusing non-https URL" }
++            val c = u.openConnection() as HttpURLConnection
++            c.instanceFollowRedirects = false
++            c.connectTimeout = 15_000
++            c.readTimeout = 30_000
++            val code = c.responseCode
++            if (code in 300..399) {
++                val location = c.getHeaderField("Location")
++                c.disconnect()
++                u = URL(u, location ?: error("HTTP $code without Location"))
++            } else if (code !in 200..299) {
++                c.disconnect()
++                error("HTTP $code")
++            } else {
++                return c
++            }
++        }
++        error("too many redirects")
++    }
++
++    fun isMetered(context: Context): Boolean = try {
++        context.getSystemService(ConnectivityManager::class.java)?.isActiveNetworkMetered ?: true
++    } catch (e: SecurityException) {
++        true
++    }
++
++    fun start(context: Context, entry: ModelEntry, variant: ModelVariant, localeKey: String) {
++        val app = context.applicationContext
++        val slot = slot(entry, localeKey)
++        if (jobs[slot]?.isCompleted == false) return
++        tasks[slot] = DownloadTask(entry.id, 0, variant.size)
++        jobs[slot] = scope.launch {
++            val dir = File(app.cacheDir, "model-downloads").apply { mkdirs() }
++            val tmp = File(dir, slot.replace(Regex("[^A-Za-z0-9_.-]"), "_") + "-${System.nanoTime()}.part")
++            try {
++                download(variant, tmp, { conns[slot] = it }) { tasks[slot] = DownloadTask(entry.id, it, variant.size) }
++                tasks[slot] = DownloadTask(entry.id, variant.size, variant.size, installing = true)
++                install(app, entry, tmp, localeKey)
++                app.setSetting(installedKey(slot), "${entry.id}@${entry.version}@${variant.name}")
++                tasks.remove(slot)
++            } catch (e: Exception) {
++                if (e is CancellationException || !isActive) {
++                    tasks.remove(slot)
++                } else {
++                    Log.w(TAG, "download of ${entry.id} failed", e)
++                    tasks[slot] = DownloadTask(entry.id, 0, variant.size, error = e.message ?: e.javaClass.simpleName)
++                }
++            } finally {
++                conns.remove(slot)
++                tmp.delete()
++            }
++        }
++    }
++
++    /** Stops a running download; the connection is closed so a blocked read returns at once. */
++    fun cancel(slot: String) {
++        jobs[slot]?.cancel()
++        conns[slot]?.disconnect()
++    }
++
++    private suspend fun download(variant: ModelVariant, tmp: File, onOpen: (HttpURLConnection) -> Unit, progress: (Long) -> Unit) {
++        val conn = open(variant.url)
++        onOpen(conn)
++        try {
++            val md = MessageDigest.getInstance("SHA-256")
++            var n = 0L
++            conn.inputStream.use { input ->
++                tmp.outputStream().use { out ->
++                    val buf = ByteArray(1 shl 16)
++                    var reported = 0L
++                    while (true) {
++                        currentCoroutineContext().ensureActive()
++                        val r = input.read(buf)
++                        if (r < 0) break
++                        out.write(buf, 0, r); md.update(buf, 0, r); n += r
++                        check(n <= variant.size) { "file is larger than expected" }
++                        if (n - reported >= 1 shl 20) { reported = n; progress(n) }
++                    }
++                }
++            }
++            check(n == variant.size) { "incomplete download ($n of ${variant.size} bytes)" }
++            val hex = md.digest().joinToString("") { "%02x".format(it) }
++            check(hex.equals(variant.sha256, ignoreCase = true)) { "checksum mismatch" }
++        } finally {
++            conn.disconnect()
++        }
++    }
++
++    /** Installs a verified file the same way a manual import does. */
++    private suspend fun install(context: Context, entry: ModelEntry, file: File, localeKey: String) {
++        val detected = file.inputStream().use { determineFileKind(it) }
++        val kind = entry.fileKind
++        if (kind == null) {
++            // Cleanup model: same destination and checks as LocalLlm.import
++            check(detected.kind == FileKind.Transformer) { "not a GGUF model file" }
++            LocalLlm.release()
++            val dst = LocalLlm.modelFile(context).apply { parentFile?.mkdirs() }
++            if (!file.renameTo(dst)) LocalLlm.import(context, Uri.fromFile(file)).getOrThrow()
++            LocalCleanupModel.ensureRegistered(context)
++            return
++        }
++        check(detected.kind == kind) { "unexpected file type" }
++
++        // Same file names and preferences as ImportResourceActivity.applySetting
++        val outputFileName = outputFileName(kind, localeKey)
++        if (kind == FileKind.Transformer) {
++            val outputFile = File(ModelPaths.getModelDirectory(context), outputFileName)
++            file.copyTo(outputFile, overwrite = true)
++            ModelPaths.updateModelOption(context, localeKey.split("_").first(), outputFile)
++        } else {
++            file.copyTo(File(context.getExternalFilesDir(null), outputFileName), overwrite = true)
++            context.setSetting(kind.preferenceKeyFor(localeKey), outputFileName)
++            detected.name?.let { context.setSetting(kind.namePreferenceKeyFor(localeKey), it) }
++        }
++        GlobalIMEMessage.tryEmit(IMEMessage.ReloadResources)
++    }
++}
++
++@Composable
++private fun ConfirmDownloadDialog(entry: ModelEntry, variant: ModelVariant, metered: Boolean, onConfirm: () -> Unit, onDismiss: () -> Unit) {
++    val context = LocalContext.current
++    AlertDialog(
++        title = { Text(stringResource(R.string.model_downloads_confirm_title, entry.title)) },
++        text = {
++            Column {
++                if (entry.description.isNotBlank()) Text(entry.description)
++                Spacer(Modifier.height(8.dp))
++                Text(stringResource(R.string.model_downloads_size, formatModelSize(variant.size)))
++                if (entry.license.isNotBlank()) Text(stringResource(R.string.model_downloads_license, entry.license))
++                if (entry.infoUrl.isNotBlank()) {
++                    Text(
++                        stringResource(R.string.model_downloads_more_info),
++                        color = MaterialTheme.colorScheme.primary,
++                        modifier = Modifier.clickable { context.openURI(entry.infoUrl, true) }.padding(vertical = 8.dp)
++                    )
++                }
++                if (metered) {
++                    Spacer(Modifier.height(8.dp))
++                    Text(stringResource(R.string.model_downloads_metered_warning), color = MaterialTheme.colorScheme.error)
++                }
++            }
++        },
++        onDismissRequest = onDismiss,
++        confirmButton = { TextButton(onClick = onConfirm) { Text(stringResource(R.string.model_downloads_download)) } },
++        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.model_downloads_cancel)) } }
++    )
++}
++
++@Composable
++private fun DownloadProgress(slot: String, task: DownloadTask) {
++    if (task.error != null) {
++        Text(
++            stringResource(R.string.model_downloads_failed, task.error),
++            style = Typography.Small, color = MaterialTheme.colorScheme.error,
++            modifier = Modifier.padding(start = 16.dp, end = 16.dp)
++        )
++        return
++    }
++    Column(Modifier.padding(start = 16.dp, end = 6.dp)) {
++        LinearProgressIndicator(
++            progress = { if (task.total > 0) task.bytes.toFloat() / task.total else 0f },
++            modifier = Modifier.fillMaxWidth().padding(end = 10.dp)
++        )
++        Row(verticalAlignment = Alignment.CenterVertically) {
++            Text(
++                if (task.installing) stringResource(R.string.model_downloads_installing)
++                else stringResource(R.string.model_downloads_progress, formatModelSize(task.bytes), formatModelSize(task.total)),
++                style = Typography.Small, modifier = Modifier.weight(1f)
++            )
++            if (!task.installing) TextButton(onClick = { ModelDownloads.cancel(slot) }) {
++                Text(stringResource(R.string.model_downloads_cancel))
++            }
++        }
++    }
++}
++
++/** One manifest entry: size choice (voice), status, Download/Update button, progress. */
++@Composable
++private fun DownloadRow(entry: ModelEntry, localeKey: String) {
++    val context = LocalContext.current
++    val slot = ModelDownloads.slot(entry, localeKey)
++    val installed = useDataStore(ModelDownloads.installedKey(slot), "").value.split("@")
++    val installedHere = installed.size == 3 && installed[0] == entry.id &&
++        entry.fileKind?.let { ModelDownloads.isInUse(context, it, localeKey) } == true
++    var selected by rememberSaveable(entry.id) {
++        mutableStateOf(entry.variants.indexOfFirst { installedHere && it.name == installed[2] }.takeIf { it >= 0 } ?: entry.defaultVariant)
++    }
++    val variant = entry.variants[selected.coerceIn(entry.variants.indices)]
++    val upToDate = installedHere && (installed[1].toIntOrNull() ?: 0) >= entry.version && installed[2] == variant.name
++    val updateAvailable = installedHere && (installed[1].toIntOrNull() ?: 0) < entry.version
++    val task = ModelDownloads.tasks[slot]
++    var confirm by remember { mutableStateOf<Boolean?>(null) }
++
++    confirm?.let { metered ->
++        ConfirmDownloadDialog(entry, variant, metered,
++            onConfirm = { confirm = null; ModelDownloads.start(context, entry, variant, localeKey) },
++            onDismiss = { confirm = null })
++    }
++
++    Row(Modifier.padding(start = 16.dp, end = 6.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
++        entry.fileKind?.let {
++            Icon(painterResource(it.icon()), contentDescription = null, modifier = Modifier.size(16.dp))
++            Spacer(Modifier.width(8.dp))
++        }
++        Column(Modifier.weight(1f)) {
++            Text(
++                (entry.fileKind?.kindTitle(LocalResources.current) ?: entry.title) + " · " + formatModelSize(variant.size),
++                style = Typography.Body.RegularMl
++            )
++            Text(
++                when {
++                    updateAvailable -> stringResource(R.string.model_downloads_update_available)
++                    upToDate -> stringResource(R.string.model_downloads_installed)
++                    else -> entry.title
++                },
++                style = Typography.Small
++            )
++        }
++        if (task == null || task.error != null) {
++            if (!upToDate) TextButton(onClick = { confirm = ModelDownloads.isMetered(context) }) {
++                Text(stringResource(if (updateAvailable) R.string.model_downloads_update else R.string.model_downloads_download))
++            }
++        }
++    }
++    if (entry.variants.size > 1 && (task == null || task.error != null)) {
++        Row(Modifier.padding(start = 28.dp, end = 6.dp)) {
++            entry.variants.forEachIndexed { i, v ->
++                Row(Modifier.clickable { selected = i }, verticalAlignment = Alignment.CenterVertically) {
++                    RadioButton(selected = i == selected, onClick = { selected = i })
++                    Text(v.name, style = Typography.Small, modifier = Modifier.padding(end = 8.dp))
++                }
++            }
++        }
++    }
++    task?.let { DownloadProgress(slot, it) }
++}
++
++/** "Available for <language>" block for a language card on the Languages screen. */
++@Composable
++fun LanguageModelDownloads(localeKey: String, language: String, languageName: String) {
++    val context = LocalContext.current
++    LaunchedEffect(Unit) { ModelDownloads.refreshIndex(context) }
++    val entries = ModelDownloads.entries.filter { it.fileKind != null && (it.locale == localeKey || it.locale == language) }
++    if (entries.isEmpty()) return
++
++    Spacer(Modifier.height(16.dp))
++    Text(
++        stringResource(R.string.model_downloads_available_for, languageName),
++        modifier = Modifier.padding(start = 16.dp, end = 16.dp),
++        style = Typography.SmallMl,
++        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
++    )
++    entries.forEach { DownloadRow(it, localeKey) }
++}
++
++/** Download button for the on-device dictation cleanup model, next to its Import button. */
++@Composable
++fun CleanupModelDownload(enabled: Boolean, onInstalled: () -> Unit) {
++    val context = LocalContext.current
++    LaunchedEffect(Unit) { ModelDownloads.refreshIndex(context) }
++    val entry = ModelDownloads.entries.firstOrNull { it.kind == "cleanup" } ?: return
++    val variant = entry.variants[entry.defaultVariant]
++    val slot = ModelDownloads.slot(entry, "")
++    val installedValue = useDataStore(ModelDownloads.installedKey(slot), "").value
++    val installed = installedValue.split("@")
++    val updateAvailable = installed.size == 3 && installed[0] == entry.id && LocalLlm.hasModel(context) &&
++        (installed[1].toIntOrNull() ?: 0) < entry.version
++    val task = ModelDownloads.tasks[slot]
++    var confirm by remember { mutableStateOf<Boolean?>(null) }
++    LaunchedEffect(installedValue) { onInstalled() }
++
++    confirm?.let { metered ->
++        ConfirmDownloadDialog(entry, variant, metered,
++            onConfirm = { confirm = null; ModelDownloads.start(context, entry, variant, "") },
++            onDismiss = { confirm = null })
++    }
++    if (task == null || task.error != null) {
++        Button(onClick = { confirm = ModelDownloads.isMetered(context) }, enabled = enabled,
++            modifier = Modifier.fillMaxWidth().padding(16.dp, 4.dp)) {
++            Text(stringResource(
++                if (updateAvailable) R.string.model_downloads_cleanup_update else R.string.model_downloads_cleanup_download,
++                formatModelSize(variant.size)
++            ))
++        }
++    }
++    task?.let { DownloadProgress(slot, it) }
++}
+diff --git a/java/src/org/futo/inputmethod/latin/uix/settings/pages/Languages.kt b/java/src/org/futo/inputmethod/latin/uix/settings/pages/Languages.kt
+index a8cbe2068..e8607cf62 100644
+--- a/java/src/org/futo/inputmethod/latin/uix/settings/pages/Languages.kt
++++ b/java/src/org/futo/inputmethod/latin/uix/settings/pages/Languages.kt
+@@ -216,7 +216,8 @@ fun LanguageSurface(
+     onLayoutRemoved: (InputMethodSubtype) -> Unit,
+     onLayoutAdditionRequested: () -> Unit,
+     onLanguageRemoved: () -> Unit,
+-    onToggleMultilingualBucket: (Boolean) -> Unit
++    onToggleMultilingualBucket: (Boolean) -> Unit,
++    downloads: @Composable () -> Unit = {}
+ ) {
+     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+         Column(
+@@ -262,6 +263,7 @@ fun LanguageSurface(
+                     selection = item.options.transformerModel
+                         ?: stringResource(R.string.language_settings_resource_none)
+                 ) { onConfigurableSelected(FileKind.Transformer) }
++                downloads()
+ 
+                 Spacer(modifier = Modifier.height(24.dp))
+ 
+@@ -740,7 +742,8 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController())
+                     }
+ 
+                     multilingualBucket.setValue(newSet)
+-                }
++                },
++                downloads = { org.futo.inputmethod.latin.uix.downloads.LanguageModelDownloads(localeString, locale.language, name) }
+             )
+ 
+             Spacer(modifier = Modifier.height(12.dp))
+diff --git a/java/stable/AndroidManifest.xml b/java/stable/AndroidManifest.xml
+index 876f6806e..07b9b22fa 100644
+--- a/java/stable/AndroidManifest.xml
++++ b/java/stable/AndroidManifest.xml
+@@ -4,6 +4,8 @@
+     <!-- Personal build: network is used only for the user-configured dictation cleanup server (off by default).
+          Cleartext is allowed for plain-http servers on a private tailnet/LAN. -->
+     <uses-permission android:name="android.permission.INTERNET" />
++    <!-- Model downloads: warn before downloading on a metered connection -->
++    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+ 
+     <application android:usesCleartextTraffic="true">
+         <service

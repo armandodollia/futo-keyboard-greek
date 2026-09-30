@@ -51,7 +51,7 @@ self-corrections) or rewritten (rambler: a short, clear message) by an LLM. It i
   name the cleanup models are trained with.
 
 The feature is off by default. The build declares the INTERNET permission, which it uses only to contact the server
-you configure.
+you configure and, for model downloads (0004), GitHub and Hugging Face.
 
 ### 0003: On-device cleanup
 
@@ -62,6 +62,17 @@ you configure.
 - **Import a model:** under Dictation cleanup, *Import on-device model (.gguf)* loads a fine-tuned cleanup model, e.g. a
   Qwen3-1.7B at Q4_0 (~1 GB).
 - **Fully offline** when used alone, or as the backup for the remote server.
+
+### 0004: Model downloads
+
+`patches/0004-model-downloads.patch`. The app downloads ready-made models instead of you fetching files in a browser
+and importing them:
+
+- **Per language:** each card under Settings → Languages & Models shows "Available for <language>" with the typing
+  model, voice model (choice of size) and dictionary, and "Update available" when a newer version is published.
+- **Dictation cleanup:** *Download on-device model (1.0 GB)* next to the Import button.
+- **Safe:** nothing downloads without a tap, a metered connection asks first, the SHA-256 is checked, and the file is
+  installed exactly like a manual import. The list comes from [`models/index.json`](models/index.json).
 
 ### The build
 

@@ -1,0 +1,116 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "id": "voice-el",
+      "kind": "voice",
+      "locale": "el",
+      "title": "Greek Whisper v4",
+      "description": "Whisper fine-tuned for Greek, incl. slang and swearing. Small is the most accurate and needs a recent phone; base suits mid-range phones, tiny slow or old ones.",
+      "version": 1,
+      "size": 264464624,
+      "sha256": "415e7da71f8ebea62a319beeaacfde75c2285f8b52d28cc3652de7cb475b1d31",
+      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-244-v4.bin",
+      "license": "MIT",
+      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/README.md",
+      "variants": [
+        {
+          "name": "small",
+          "size": 264464624,
+          "sha256": "415e7da71f8ebea62a319beeaacfde75c2285f8b52d28cc3652de7cb475b1d31",
+          "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-244-v4.bin"
+        },
+        {
+          "name": "base",
+          "size": 81768602,
+          "sha256": "3507a83e5221ae2ae33143f4c24b2ced4d6428981f43aff95e069e62a5b9459b",
+          "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-74-v4.bin"
+        },
+        {
+          "name": "tiny",
+          "size": 43537450,
+          "sha256": "9861d703fec4dcea55703ddbba5a8523d327c26b665ae32b603c21eb6a152f86",
+          "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-39-v4.bin"
+        }
+      ]
+    },
+    {
+      "id": "voice-sq",
+      "kind": "voice",
+      "locale": "sq",
+      "title": "Albanian Whisper small v2",
+      "description": "Whisper small fine-tuned for Albanian, incl. Gheg (written mostly in standard spelling).",
+      "version": 1,
+      "size": 264464624,
+      "sha256": "2011e011dffb0efb58799bfaf30fbada789063560e4d661db9e9e8760da03564",
+      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Albanian-244-v2.bin",
+      "license": "MIT (see data caveat)",
+      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/README.md"
+    },
+    {
+      "id": "typing-el",
+      "kind": "typing",
+      "locale": "el",
+      "title": "Greek typing model v1.1",
+      "description": "Next-word prediction and autocorrect for FUTO's Greek layout. Also turn on Settings > Developer > \"Allow transformer models on non QWERTY layouts\".",
+      "version": 1,
+      "size": 47209440,
+      "sha256": "5b4ccc0fe21a5f920b8198d04222cb21b435b56b9547fd8a716aca0d8b5d9ce5",
+      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/el_typing_v1.1_Q8_0.gguf",
+      "license": "MIT",
+      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/README.md"
+    },
+    {
+      "id": "typing-sq",
+      "kind": "typing",
+      "locale": "sq",
+      "title": "Albanian typing model v1.1",
+      "description": "Next-word prediction and autocorrect for FUTO's Albanian layout. Also turn on Settings > Developer > \"Allow transformer models on non QWERTY layouts\".",
+      "version": 1,
+      "size": 47044256,
+      "sha256": "1a9ad13033c1a4cb7e9ae71d65865267621bd3932c16a6028cb9088d49947abe",
+      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/sq_typing_v1.1_Q8_0.gguf",
+      "license": "MIT",
+      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/README.md"
+    },
+    {
+      "id": "dictionary-el",
+      "kind": "dictionary",
+      "locale": "el",
+      "title": "Greek dictionary (908k words)",
+      "description": "Word list with slang. Swear words follow \"Block offensive words\".",
+      "version": 1,
+      "size": 9297026,
+      "sha256": "19f4f8ab74a3a19713d4d650b541cec11767ad4a4ae88baf75cb6514e3e9626e",
+      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Greek-main_el.dict",
+      "license": "GPL-3.0",
+      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/README.md"
+    },
+    {
+      "id": "dictionary-sq",
+      "kind": "dictionary",
+      "locale": "sq",
+      "title": "Albanian dictionary (223k words)",
+      "description": "Word list incl. Gheg and slang. Swear words follow \"Block offensive words\".",
+      "version": 1,
+      "size": 1170549,
+      "sha256": "3674818631bc1439044ccd99e16eff41120a129e24795d36a1b6786047b7f9f6",
+      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Albanian-main_sq.dict",
+      "license": "MIT",
+      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/README.md"
+    },
+    {
+      "id": "cleanup",
+      "kind": "cleanup",
+      "locale": "*",
+      "title": "Dictation cleanup model v2",
+      "description": "Qwen3-1.7B fine-tuned to clean up Greek, Albanian and English dictation on the phone. Needs a 64-bit phone with enough free memory for a 1 GB model.",
+      "version": 1,
+      "size": 1054422816,
+      "sha256": "3ebd17023804d8de4249a0983a8b3db4ddc49b30a780ec832e6d0d8443676369",
+      "url": "https://github.com/armandodollia/futo-keyboard-polyglot/releases/download/models-v1/Cleanup-v2-q4_0.gguf",
+      "license": "Apache-2.0, plus the Gemma Terms of Use (use restrictions apply)",
+      "info_url": "https://github.com/armandodollia/futo-keyboard-polyglot/blob/main/models/NOTICE"
+    }
+  ]
+}

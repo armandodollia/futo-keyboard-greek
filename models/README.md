@@ -54,6 +54,11 @@ Check a download with `sha256sum -c SHA256SUMS --ignore-missing` (Linux/macOS) o
 
 ## Installing
 
+**The easy way:** FUTO Keyboard Polyglot downloads them for you (patch 0004). Open Settings → Languages & Models:
+each language card lists what is available for it (for Greek voice, pick small, base or tiny), and Settings → Voice
+input → Dictation cleanup has *Download on-device model*. Each file's SHA-256 is checked before it is installed. The
+rest of this section is the manual way.
+
 All of these are imported in FUTO Keyboard Polyglot (they also work in stock FUTO Keyboard, except the typing
 models, which need the patched build, and the cleanup model, which needs the Polyglot dictation-cleanup feature).
 Copy the file to the phone first.
@@ -115,6 +120,34 @@ away. Mild insults and everyday slang are not flagged.
   The app's on-device path uses exactly this format. Its **remote** path sends a longer, general-purpose system
   prompt written for any chat LLM, which this model was not trained on and has not been evaluated with. To use this
   model remotely with the trained prompt, put a small proxy in front of llama-server that rewrites the system message.
+
+## The download index (`index.json`)
+
+The app reads [`index.json`](index.json) from this folder on `main` (via `raw.githubusercontent.com`) when the
+Languages or Dictation cleanup screen is opened, and keeps the last good copy. It makes no other network calls for
+this. To publish a model or a new version, edit `index.json`:
+
+```json
+{"version": 1, "models": [{
+  "id": "voice-el", "kind": "voice", "locale": "el", "title": "Greek Whisper v4",
+  "description": "shown before download", "version": 1,
+  "size": 264464624, "sha256": "<hex>", "url": "https://...",
+  "license": "MIT", "info_url": "https://...",
+  "variants": [{"name": "small", "size": 264464624, "sha256": "<hex>", "url": "https://..."}]
+}]}
+```
+
+- `version` (top level) is the schema version, currently `1`.
+- `kind`: `typing` (transformer `.gguf`), `voice` (whisper `.bin`), `dictionary` (`.dict`) or `cleanup` (dictation
+  cleanup `.gguf`; `locale` is `*`).
+- `locale`: the language code (`el`, `sq`), or a full locale such as `pt_BR` to target one keyboard language only.
+- `version` (per model) is an integer. Raise it when you replace the file: phones that downloaded an older version
+  show "Update available".
+- `size` is in bytes and `sha256` is the file's hex SHA-256. Both are checked; a mismatch deletes the download.
+- `url` must be `https`. Redirects (Hugging Face `resolve` URLs go to a CDN) are followed.
+- `variants` (optional): alternative files for one slot, e.g. voice model sizes. The top-level `size`, `sha256` and
+  `url` are the default and must also appear in the list.
+- `license` and `info_url` are shown in the confirmation dialog before the download starts.
 
 ## Results
 
