@@ -3,8 +3,8 @@ MIT License
 Copyright (c) 2026 Armando Dollia
 Portions copyright (c) 2022 OpenAI (Whisper weights) and FUTO (whisper-acft method); see ../ATTRIBUTION.md.
 
-Applies to: Greek-244-v4.bin, Greek-74-v4.bin, Greek-39-v4.bin, Albanian-244-v2.bin, el_typing_v1_Q6_K.gguf,
-sq_typing_v1_Q6_K.gguf, Albanian-main_sq.dict and Albanian-main_sq.combined (see ../README.md for the per-file
+Applies to: Greek-244-v4.bin, Greek-74-v4.bin, Greek-39-v4.bin, Albanian-244-v2.bin, el_typing_v1.1_Q8_0.gguf,
+sq_typing_v1.1_Q8_0.gguf, Albanian-main_sq.dict and Albanian-main_sq.combined (see ../README.md for the per-file
 licence table and ../ATTRIBUTION.md for the data these files were trained or built on).
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
