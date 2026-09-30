@@ -1,17 +1,21 @@
 diff --git a/java/res/values/strings-downloads.xml b/java/res/values/strings-downloads.xml
 new file mode 100644
-index 000000000..182e199d4
+index 000000000..3b58c6284
 --- /dev/null
 +++ b/java/res/values/strings-downloads.xml
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,24 @@
 +<?xml version="1.0" encoding="utf-8"?>
 +<!-- Strings for model downloads (FUTO Keyboard Polyglot) -->
 +<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
-+    <string name="model_downloads_available_for" translatable="false">Available for %1$s</string>
++    <string name="model_downloads_available_for" translatable="false">Download for %1$s</string>
 +    <string name="model_downloads_download" translatable="false">Download</string>
 +    <string name="model_downloads_update" translatable="false">Update</string>
-+    <string name="model_downloads_update_available" translatable="false">Update available</string>
-+    <string name="model_downloads_installed" translatable="false">Installed</string>
++    <string name="model_downloads_update_available" translatable="false">Update available: you have an older version</string>
++    <string name="model_downloads_in_use" translatable="false">✓ In use: shown above</string>
++    <string name="model_downloads_other_size_in_use" translatable="false">The %1$s size is in use; download to switch</string>
++    <string name="model_downloads_not_in_use" translatable="false">Not in use; downloading makes it the active model</string>
++    <string name="model_downloads_now_in_use" translatable="false">%1$s is now in use</string>
++    <string name="model_downloads_explainer" translatable="false">A download becomes the active model in the rows above and replaces what is there. Tap a row above to remove it or import another.</string>
 +    <string name="model_downloads_cancel" translatable="false">Cancel</string>
 +    <string name="model_downloads_progress" translatable="false">%1$s of %2$s</string>
 +    <string name="model_downloads_installing" translatable="false">Verified, installing…</string>
@@ -38,12 +42,15 @@ index e6f6dc4dd..b6b9583a7 100644
                  scope.launch { LocalLlm.remove(context); LocalCleanupModel.ensureRegistered(context); localStatus.value = localStatusText(context) }
 diff --git a/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt b/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
 new file mode 100644
-index 000000000..f03959db1
+index 000000000..8c571ba22
 --- /dev/null
 +++ b/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
-@@ -0,0 +1,469 @@
+@@ -0,0 +1,486 @@
 +package org.futo.inputmethod.latin.uix.downloads
 +
++import kotlinx.coroutines.withContext
++import androidx.compose.ui.graphics.Color
++import android.widget.Toast
 +import android.content.Context
 +import android.net.ConnectivityManager
 +import android.net.Uri
@@ -68,6 +75,7 @@ index 000000000..f03959db1
 +import androidx.compose.runtime.Composable
 +import androidx.compose.runtime.LaunchedEffect
 +import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableIntStateOf
 +import androidx.compose.runtime.mutableStateMapOf
 +import androidx.compose.runtime.mutableStateOf
 +import androidx.compose.runtime.remember
@@ -154,6 +162,10 @@ index 000000000..f03959db1
 +        private set
 +    private var indexJob: Job? = null
 +    private var indexFetchedAt = 0L
++
++    /** Bumped after every install: the Languages screen reads it so its model rows show the newly active model. */
++    var revision by mutableIntStateOf(0)
++        private set
 +
 +    /** Download state per slot (kind + language), kept here so it survives rotation and leaving the screen. */
 +    val tasks = mutableStateMapOf<String, DownloadTask>()
@@ -264,6 +276,10 @@ index 000000000..f03959db1
 +                install(app, entry, tmp, localeKey)
 +                app.setSetting(installedKey(slot), "${entry.id}@${entry.version}@${variant.name}")
 +                tasks.remove(slot)
++                withContext(Dispatchers.Main) {
++                    revision++
++                    Toast.makeText(app, app.getString(R.string.model_downloads_now_in_use, entry.title), Toast.LENGTH_SHORT).show()
++                }
 +            } catch (e: Exception) {
 +                if (e is CancellationException || !isActive) {
 +                    tasks.remove(slot)
@@ -429,17 +445,16 @@ index 000000000..f03959db1
 +            Spacer(Modifier.width(8.dp))
 +        }
 +        Column(Modifier.weight(1f)) {
-+            Text(
-+                (entry.fileKind?.kindTitle(LocalResources.current) ?: entry.title) + " · " + formatModelSize(variant.size),
-+                style = Typography.Body.RegularMl
-+            )
++            Text(entry.title + " · " + formatModelSize(variant.size), style = Typography.Body.RegularMl)
 +            Text(
 +                when {
 +                    updateAvailable -> stringResource(R.string.model_downloads_update_available)
-+                    upToDate -> stringResource(R.string.model_downloads_installed)
-+                    else -> entry.title
++                    upToDate -> stringResource(R.string.model_downloads_in_use)
++                    installedHere -> stringResource(R.string.model_downloads_other_size_in_use, installed[2])
++                    else -> stringResource(R.string.model_downloads_not_in_use)
 +                },
-+                style = Typography.Small
++                style = Typography.Small,
++                color = if (upToDate) MaterialTheme.colorScheme.primary else Color.Unspecified
 +            )
 +        }
 +        if (task == null || task.error != null) {
@@ -475,6 +490,12 @@ index 000000000..f03959db1
 +        modifier = Modifier.padding(start = 16.dp, end = 16.dp),
 +        style = Typography.SmallMl,
 +        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
++    )
++    Text(
++        stringResource(R.string.model_downloads_explainer),
++        modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 4.dp),
++        style = Typography.Small,
++        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.6f)
 +    )
 +    entries.forEach { DownloadRow(it, localeKey) }
 +}
@@ -512,7 +533,7 @@ index 000000000..f03959db1
 +    task?.let { DownloadProgress(slot, it) }
 +}
 diff --git a/java/src/org/futo/inputmethod/latin/uix/settings/pages/Languages.kt b/java/src/org/futo/inputmethod/latin/uix/settings/pages/Languages.kt
-index a8cbe2068..e8607cf62 100644
+index a8cbe2068..437b560a1 100644
 --- a/java/src/org/futo/inputmethod/latin/uix/settings/pages/Languages.kt
 +++ b/java/src/org/futo/inputmethod/latin/uix/settings/pages/Languages.kt
 @@ -216,7 +216,8 @@ fun LanguageSurface(
@@ -533,7 +554,17 @@ index a8cbe2068..e8607cf62 100644
  
                  Spacer(modifier = Modifier.height(24.dp))
  
-@@ -740,7 +742,8 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController())
+@@ -654,6 +656,9 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController())
+ 
+             val name = Subtypes.getName(subtypes.first())
+ 
++            // Re-read the active models after an in-app download (FUTO Keyboard Polyglot)
++            org.futo.inputmethod.latin.uix.downloads.ModelDownloads.revision
++
+             val voiceInputModelName = ResourceHelper.tryFindingVoiceInputModelForLocale(
+                 context,
+                 locale
+@@ -740,7 +745,8 @@ fun LanguagesScreen(navController: NavHostController = rememberNavController())
                      }
  
                      multilingualBucket.setValue(newSet)
