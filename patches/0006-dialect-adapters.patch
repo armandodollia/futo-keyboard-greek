@@ -1,3 +1,24 @@
+diff --git a/java/res/values/strings-downloads.xml b/java/res/values/strings-downloads.xml
+index 438deb373..24d3f67a5 100644
+--- a/java/res/values/strings-downloads.xml
++++ b/java/res/values/strings-downloads.xml
+@@ -22,7 +22,13 @@
+     <string name="model_downloads_cleanup_download" translatable="false">Download on-device model (%1$s)</string>
+     <string name="model_downloads_cleanup_update" translatable="false">Update on-device model (%1$s)</string>
+     <string name="model_downloads_cleanup_per_language_explainer" translatable="false">Per-language models: one shared base plus a small file per language; used for dictation in that language.</string>
+-    <string name="model_downloads_cleanup_per_language_row" translatable="false">Per-language models: base (%1$s) + %2$s (%3$s)</string>
+-    <string name="model_downloads_cleanup_per_language_in_use" translatable="false">✓ Installed: used for dictation in %1$s</string>
+-    <string name="model_downloads_cleanup_per_language_missing" translatable="false">Not installed (%1$s to download)</string>
++    <string name="model_downloads_cleanup_per_language_row" translatable="false">%1$s (%2$s)</string>
++    <string name="model_downloads_cleanup_per_language_waiting_base" translatable="false">Downloaded; needs the shared base above</string>
++    <string name="model_downloads_cleanup_base_line" translatable="false">Shared base (%1$s, needed once for all languages):</string>
++    <string name="model_downloads_cleanup_base_installed" translatable="false">✓ installed</string>
++    <string name="model_downloads_cleanup_base_downloading" translatable="false">downloading…</string>
++    <string name="model_downloads_cleanup_base_missing" translatable="false">not downloaded (comes with the first language)</string>
++    <string name="model_downloads_downloaded" translatable="false">%1$s downloaded</string>
++    <string name="model_downloads_cleanup_per_language_in_use" translatable="false">✓ In use for %1$s dictation</string>
++    <string name="model_downloads_cleanup_per_language_missing" translatable="false">Not downloaded (%1$s)</string>
+ </resources>
 diff --git a/java/src/org/futo/inputmethod/latin/uix/actions/VoiceInputAction.kt b/java/src/org/futo/inputmethod/latin/uix/actions/VoiceInputAction.kt
 index 55ff61ba1..01de7a612 100644
 --- a/java/src/org/futo/inputmethod/latin/uix/actions/VoiceInputAction.kt
@@ -157,10 +178,45 @@ index 514dae354..0dff0ca88 100644
              else -> null
          }
 diff --git a/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt b/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
-index 5bff0420d..86e9fcd8e 100644
+index 5bff0420d..b99a48359 100644
 --- a/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
 +++ b/java/src/org/futo/inputmethod/latin/uix/downloads/ModelDownloads.kt
-@@ -542,7 +542,7 @@ private fun CleanupAdapterRow(
+@@ -238,7 +238,9 @@ object ModelDownloads {
+                 tasks.remove(slot)
+                 withContext(Dispatchers.Main) {
+                     revision++
+-                    Toast.makeText(app, app.getString(R.string.model_downloads_now_in_use, entry.title), Toast.LENGTH_SHORT).show()
++                    val msg = if (entry.kind == KIND_CLEANUP_BASE || entry.kind == KIND_CLEANUP_ADAPTER) R.string.model_downloads_downloaded
++                        else R.string.model_downloads_now_in_use
++                    Toast.makeText(app, app.getString(msg, entry.title), Toast.LENGTH_SHORT).show()
+                 }
+             } catch (e: Exception) {
+                 if (e is CancellationException || !isActive) {
+@@ -524,8 +526,22 @@ fun CleanupAdapterDownloads(enabled: Boolean, onInstalled: () -> Unit) {
+         modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 4.dp),
+         style = Typography.Small
+     )
++    // The shared base: shown once, with its own status and progress, so it isn't mistaken for a language's download
++    val baseTask = ModelDownloads.tasks[baseSlot]
++    Text(
++        stringResource(R.string.model_downloads_cleanup_base_line, formatModelSize(base.variants[base.defaultVariant].size)) + " " +
++            stringResource(when {
++                baseTask != null && baseTask.error == null -> R.string.model_downloads_cleanup_base_downloading
++                baseCurrent -> R.string.model_downloads_cleanup_base_installed
++                basePresent -> R.string.model_downloads_update_available
++                else -> R.string.model_downloads_cleanup_base_missing
++            }),
++        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp),
++        style = Typography.Body.RegularMl,
++        color = if (baseCurrent) MaterialTheme.colorScheme.primary else Color.Unspecified
++    )
++    baseTask?.let { DownloadProgress(baseSlot, it) }
+     adapters.forEach { CleanupAdapterRow(base, basePresent, baseCurrent, it, enabled, onInstalled) }
+-    ModelDownloads.tasks[baseSlot]?.let { DownloadProgress(baseSlot, it) }
+ }
+ 
+ @Composable
+@@ -542,7 +558,7 @@ private fun CleanupAdapterRow(
      val needBytes = need.sumOf { it.variants[it.defaultVariant].size }
      // "Update" when everything still needed is already installed in an older version
      val update = need.isNotEmpty() && need.all { if (it === base) basePresent else present }
@@ -169,3 +225,29 @@ index 5bff0420d..86e9fcd8e 100644
      val task = ModelDownloads.tasks[slot]
      var confirm by remember { mutableStateOf<Boolean?>(null) }
  
+@@ -555,13 +571,13 @@ private fun CleanupAdapterRow(
+         Column(Modifier.weight(1f)) {
+             Text(
+                 stringResource(R.string.model_downloads_cleanup_per_language_row,
+-                    formatModelSize(base.variants[base.defaultVariant].size), languageName,
+-                    formatModelSize(adapter.variants[adapter.defaultVariant].size)),
++                    languageName, formatModelSize(adapter.variants[adapter.defaultVariant].size)),
+                 style = Typography.Body.RegularMl
+             )
+             Text(
+                 when {
+                     need.isEmpty() -> stringResource(R.string.model_downloads_cleanup_per_language_in_use, languageName)
++                    adapterCurrent -> stringResource(R.string.model_downloads_cleanup_per_language_waiting_base)
+                     update -> stringResource(R.string.model_downloads_update_available)
+                     else -> stringResource(R.string.model_downloads_cleanup_per_language_missing, formatModelSize(needBytes))
+                 },
+@@ -569,7 +585,8 @@ private fun CleanupAdapterRow(
+                 color = if (need.isEmpty()) MaterialTheme.colorScheme.primary else Color.Unspecified
+             )
+         }
+-        if (need.isNotEmpty() && (task == null || task.error != null)) {
++        val baseBusy = ModelDownloads.tasks[ModelDownloads.slot(base, "")]?.let { it.error == null } == true
++        if (need.isNotEmpty() && (task == null || task.error != null) && !(adapterCurrent && baseBusy)) {
+             TextButton(onClick = { confirm = ModelDownloads.isMetered(context) }, enabled = enabled) {
+                 Text(stringResource(if (update) R.string.model_downloads_update else R.string.model_downloads_download))
+             }
